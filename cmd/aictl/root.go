@@ -27,6 +27,7 @@ func newRootCmd(a *app.App, version string) *cobra.Command {
 	rootCmd.SetErr(a.UI.Err())
 
 	rootCmd.AddCommand(newInitCmd(a))
+	rootCmd.AddCommand(newStartCmd(a))
 
 	return rootCmd
 }

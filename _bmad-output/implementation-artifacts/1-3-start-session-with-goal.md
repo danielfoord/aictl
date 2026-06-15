@@ -1,6 +1,10 @@
+---
+baseline_commit: 3f46f8ce6ead0ad59e9155fa9b62e243d77cfd2f
+---
+
 # Story 1.3: Start a Session with a Goal (`aictl start`)
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -22,23 +26,41 @@ so that my task has a recorded, immutable objective and aictl knows my starting 
 ## Tasks / Subtasks
 
 - [ ] **Task 1 — Single-session lock (AC: 3, NFR-3)**
-  - [ ] Create `internal/session/lock.go`: acquire/release a lockfile at `Paths.Lock` (`.ai-session/.lock`). Acquisition fails clearly if a live lock exists (detect/handle stale locks pragmatically — e.g. record pid/timestamp).
-  - [ ] "Active Session" for v1 = lock present; document the chosen staleness policy.
-- [ ] **Task 2 — Minimal git context read (AC: 2)**
-  - [ ] Create `internal/git/git.go` (shell-out wrapper around the `git` binary via `os/exec`) **and only the minimal reads this story needs**: current branch and clean/dirty status (`git rev-parse --abbrev-ref HEAD`, `git status --porcelain`).
-  - [ ] **Scope fence:** do NOT implement diff, recent-commits, `maxDiffChars` bounding, or the secret denylist here — those are Story 2.1. Create just the slice 1.3 requires so there is no forward dependency on 2.1.
-  - [ ] Handle "not a git repo" gracefully (clear error or recorded "no branch" — document choice).
-- [ ] **Task 3 — Goal + immutability on Task State (AC: 1)**
-  - [ ] Set `TaskState.goal` (field exists from Story 1.2) on `start`; persist via `WriteAtomic`.
-  - [ ] Enforce immutability: if a Goal is already set, `start` does not overwrite it — refuse (AC 3 path) or no-op with a clear message. Capture initial branch/dirty into Task State (add fields if needed, with `yaml:"camelCase"` tags).
-- [ ] **Task 4 — `aictl start` command (AC: 1–6)**
-  - [ ] Create `cmd/aictl/start.go`: thin Cobra subcommand taking the goal as a required positional arg; calls `app.Start(ctx, goal)`. No logic in `cmd/`.
-  - [ ] Implement the `Start` use-case in `internal/app`: acquire lock → resolve/handle missing `.ai-session/` (AC 4) → capture git context → set immutable Goal → persist → success message.
-  - [ ] Decide and implement the AC-4 behavior (recommended: auto-init if absent, then proceed — see Open Questions).
-- [ ] **Task 5 — Tests (AC: 1–5)**
-  - [ ] `lock_test.go`: acquire succeeds on fresh tree; second acquire fails; release frees it; stale-lock policy behaves as documented.
-  - [ ] `start` use-case test (table-driven, `t.TempDir()` + a temp git repo): goal persisted + immutable on re-`start`; branch/dirty captured; second concurrent start refused; no-init behavior per AC 4; no network.
-  - [ ] `git` minimal-read test against a temp repo (branch + dirty detection); non-repo handled.
+  - [x] Created `internal/session/lock.go`: `AcquireLock` (O_CREATE|O_EXCL — race-free) writing pid+timestamp; `ReleaseLock`; `ErrSessionLocked` sentinel.
+  - [x] "Active Session" = lock present; documented in code that the lock persists (not released per-command in v1) until the Session is reset.
+- [x] **Task 2 — Minimal git context read (AC: 2)**
+  - [x] Created `internal/git/git.go` (shell-out via `os/exec`): `Branch` (`git branch --show-current`), `IsDirty` (`git status --porcelain`), `Capture` → `Snapshot{Branch,Dirty}`. (Used `--show-current` over `rev-parse` so it works on an unborn branch.)
+  - [x] Scope fence respected: no diff/commits/denylist (Story 2.1).
+  - [x] "Not a git repo" → `Capture` returns an error; `Start` treats git capture as best-effort and continues (records empty branch).
+- [x] **Task 3 — Goal + immutability on Task State (AC: 1)**
+  - [x] `Start` sets `TaskState.Goal` and persists via `session.SaveState` (→ `WriteAtomic`).
+  - [x] Immutability enforced via the lock: a second `start` fails at `AcquireLock` (ErrSessionLocked) before touching the Goal. Added `Branch`/`Dirty` camelCase fields to `TaskState`; added `LoadState`/`SaveState` helpers.
+- [x] **Task 4 — `aictl start` command (AC: 1–6)**
+  - [x] Created `cmd/aictl/start.go`: thin subcommand (`cobra.ExactArgs(1)`) calling `app.Start(ctx, goal)`.
+  - [x] Implemented `App.Start`: getwd → auto-init if missing → acquire lock → load state → set Goal + capture context → save → success message.
+  - [x] AC-4: **auto-init if absent, then proceed** (resolved open question).
+- [x] **Task 5 — Tests (AC: 1–5)**
+  - [x] `internal/session/lock_test.go`: acquire on fresh; second acquire → ErrSessionLocked; release frees; release-missing is no-error.
+  - [x] `internal/app/start_test.go`: goal persisted; immutable on re-start (ErrSessionLocked, goal unchanged); branch captured; auto-init w/o prior init; empty goal rejected; works outside a git repo (empty branch).
+  - [x] `internal/git/git_test.go`: branch + dirty detection against a temp `git init` repo; non-repo returns error.
+
+### Review Findings (code review 2026-06-15)
+
+_3 adversarial layers. Acceptance Auditor: all 6 ACs PASS, all conventions PASS. Both hunters converged on a real lock-wedge robustness issue._
+
+**Patch (applied 2026-06-15):**
+
+- [x] [Review][Patch] Release the lock on any post-acquire failure in `Start` (`defer` + `committed` flag; lock persists only on success) — failures are now recoverable, not a permanent wedge [internal/app/start.go] (+ `TestStartReleasesLockOnFailure`)
+- [x] [Review][Patch] Capture git context BEFORE auto-init so `dirty` is faithful to the user's tree at session start (verified: clean repo now reports `dirty: false`) [internal/app/start.go]
+- [x] [Review][Patch] Pinned `git status --porcelain --untracked-files=normal` for deterministic dirty detection [internal/git/git.go]
+
+**Deferred (tracked in deferred-work.md):**
+
+- [x] [Review][Defer] Stale-lock recovery for crash/SIGKILL (pid-liveness check or an `aictl unlock`/`--force`) — the defer-rollback above covers in-process failures, but an abnormal termination still strands the lock; no recovery command exists in v1 → follow-up story
+- [x] [Review][Defer] git subprocess timeouts + error classification (distinguish "not a git repo" from a real git failure and surface the latter) → Story 2.1 (git-layer maturation)
+- [x] [Review][Defer] Resolve the true repo root (walk up to `.git` / existing `.ai-session`) + warn when run outside a git repo — consolidate with the 1.2-deferred repo-root item → Stories 2.1 / shared helper
+
+**Dismissed:** "Goal immutable but overwritten" (false positive — lock blocks the second `start` before the goal line; immutability tested); detached-HEAD label conflation (`--show-current` yields names for unborn branches, so empty ≈ detached in a real repo — label is accurate); lock fsync / discarded `Fprintf` error (lock *existence* is the contract via O_EXCL; contents are best-effort diagnostics); `LoadState` strictness (kept strict for future consumers; the lock-release patch makes failures recoverable).
 
 ## Dev Notes
 
@@ -113,14 +135,37 @@ The Goal is "the original task description … immutable for the Session's life.
 
 ### Agent Model Used
 
-_(to be filled by dev agent)_
+claude-opus-4-8 (BMad dev-story workflow)
 
 ### Debug Log References
 
+- `go mod tidy` clean; `go build ./...` ok; `go vet ./...` no issues; `gofmt` clean (after `gofmt -w` on session.go)
+- `go test ./...` → 29 passed across 7 packages
+- Smoke (temp git repo): `aictl start "Refactor the classifier"` → auto-inits, `Started session`, `branch: main (dirty: true)`, exit 0; `state.yaml` has goal+branch+dirty; `.lock` holds `pid` + `acquiredAt`; second `start` → "a session is already active …" exit 1.
+
 ### Completion Notes List
 
-- Ultimate context engine analysis completed — comprehensive developer guide created.
+- **Open questions resolved:** (1) no-`init` behavior → **auto-init then proceed**; (2) lock policy → lock = **persistent active-Session marker**, created with `O_EXCL` (race-free), recording pid+timestamp; not released per-command in v1 (released when the Session is reset by a future command). Goal immutability falls out of this: a second `start` is refused at lock acquisition before the Goal is touched.
+- **Minimal `internal/git` slice introduced** (its "home" is Epic 2): `Branch`/`IsDirty`/`Capture` only — diff/commits/denylist remain Story 2.1. Used `git branch --show-current` (works on unborn branches). Git capture in `Start` is **best-effort**: starting outside a git repo still succeeds (records empty branch), so `start` isn't blocked pre-`git init`.
+- **Documented convention exception:** the lockfile bypasses `session.WriteAtomic` because it needs atomic exclusive *create* (`O_EXCL`), which temp-file+rename can't provide. All durable state artifacts still go through `WriteAtomic`.
+- Added `Branch`/`Dirty` fields to `TaskState` (camelCase tags) + `LoadState`/`SaveState` helpers. Registered `start` subcommand on root.
+- Conventions honored: thin `cmd/`, context-first, `%w` wrapping, no network (guard test green), camelCase yaml.
+- Note on smoke output: `dirty: true` is correct — the untracked `.ai-session/` makes the working tree dirty. In real use `.ai-session/`'s transient parts are gitignored within the dir; whether to ignore the whole dir at repo root is a user choice.
 
 ### File List
 
-_(to be filled by dev agent)_
+- `internal/session/lock.go` (new)
+- `internal/session/lock_test.go` (new)
+- `internal/git/git.go` (new)
+- `internal/git/git_test.go` (new)
+- `internal/app/start.go` (new)
+- `internal/app/start_test.go` (new)
+- `cmd/aictl/start.go` (new)
+- `internal/session/session.go` (modified — Branch/Dirty fields, LoadState/SaveState)
+- `cmd/aictl/root.go` (modified — register start subcommand)
+- `go.mod` / `go.sum` (unchanged deps; tidy)
+
+### Change Log
+
+- 2026-06-15: Implemented Story 1.3 — `aictl start "<goal>"` (FR-2). Added single-session lockfile (`session.AcquireLock`, race-free O_EXCL), a minimal shell-out `internal/git` slice (branch + dirty), `TaskState` Branch/Dirty + Load/Save, and the `App.Start` use-case + command. Auto-inits if needed; immutable Goal enforced via the lock. 29 tests passing.
+- 2026-06-15: Addressed code review — 3 patches applied (lock released on post-acquire failure; git captured before auto-init; pinned `--untracked-files=normal`). 3 findings deferred (stale-lock crash recovery, git timeouts/error-classification, repo-root resolution). 30 tests passing.

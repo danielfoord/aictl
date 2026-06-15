@@ -12,3 +12,9 @@
 - **Strict YAML unmarshal** (reject unknown fields) so typos in hand-edited `config.yaml` / `state.yaml` are reported rather than silently dropped (NFR-4 hand-editability). Add at the point each file is loaded-and-acted-on. → **state: Story 1.3 · config: Story 3.3.**
 - **Normalize nil `Providers` map** after config unmarshal (avoid a future nil-map assignment panic) and **warn when `init`/commands run outside a git repo** (aictl is git-centric). → **Stories 1.3 / 2.1 / 3.3.**
 - **Parent-directory fsync** for the `.ai-session/` directory creation itself (file writes are already fsync'd; the dir-entry creation is not). Low impact — `init` is re-runnable. → **store-hardening pass when warranted.**
+
+## Deferred from: code review of 1-3-start-session-with-goal (2026-06-15)
+
+- **Stale-lock recovery** for abnormal termination (SIGKILL / power loss) that strands `.ai-session/.lock`. The defer-rollback applied in 1.3 releases the lock on in-process failures, but a crash between `AcquireLock` and `SaveState` still leaves a permanent lock with no recovery path. Add pid-liveness detection in `AcquireLock` (reclaim if the recorded pid is dead) and/or an `aictl unlock` / `start --force`. → **follow-up story (lock recovery).**
+- **git subprocess timeouts + error classification** — bound git calls with a timeout and distinguish "not a git repository" (expected, silent) from a genuine git failure (surface a warning). Currently all git errors are swallowed as best-effort. → **Story 2.1 (git layer).**
+- **Resolve the true repo root** (walk up to `.git` / an existing `.ai-session/`) instead of using raw CWD, so commands run from a subdirectory reuse the project's session; warn when outside a git repo. Consolidate with the 1.2-deferred repo-root check. → **Story 2.1 / shared `session` helper.**
