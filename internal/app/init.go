@@ -21,6 +21,7 @@ var ErrAlreadyInitialized = errors.New("aictl is already initialized here (.ai-s
 // checkpoints may contain raw transcripts, so both are ignored.
 const gitignoreContents = `# Transient / sensitive aictl artifacts — not committed
 .lock
+.state.lock
 .tmp-*
 checkpoints/
 `

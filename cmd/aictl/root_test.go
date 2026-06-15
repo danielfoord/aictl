@@ -2,10 +2,12 @@ package main
 
 import (
 	"bytes"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/danielfoord/aictl/internal/app"
+	"github.com/danielfoord/aictl/internal/session"
 	"github.com/danielfoord/aictl/internal/ui"
 )
 
@@ -48,5 +50,66 @@ func TestResolveVersionPrefersLdflags(t *testing.T) {
 	version = "9.9.9"
 	if got := resolveVersion(); got != "9.9.9" {
 		t.Fatalf("resolveVersion() = %q, want ldflags value %q", got, "9.9.9")
+	}
+}
+
+func TestStateCommandsPersistThroughRootCommand(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	out, _, run := newTestCmd("dev")
+
+	if err := run("init"); err != nil {
+		t.Fatalf("init: %v", err)
+	}
+	out.Reset()
+
+	for _, tc := range []struct {
+		args []string
+		want string
+	}{
+		{[]string{"note", "choose yaml"}, "noted decision: \"choose yaml\"\n"},
+		{[]string{"done", "wrote tests"}, "recorded completed step: \"wrote tests\"\n"},
+		{[]string{"next", "wire commands"}, "recorded next step: \"wire commands\"\n"},
+		{[]string{"fail", "bad state"}, "recorded known failure: \"bad state\"\n"},
+	} {
+		out.Reset()
+		if err := run(tc.args...); err != nil {
+			t.Fatalf("%v: %v", tc.args, err)
+		}
+		if got := out.String(); got != tc.want {
+			t.Fatalf("%v output = %q, want %q", tc.args, got, tc.want)
+		}
+	}
+
+	state, err := session.LoadState(session.NewPaths(dir).State())
+	if err != nil {
+		t.Fatalf("load state: %v", err)
+	}
+	if got, want := state.Decisions, []string{"choose yaml"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Decisions = %v, want %v", got, want)
+	}
+	if got, want := state.Completed, []string{"wrote tests"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("Completed = %v, want %v", got, want)
+	}
+	if got, want := state.NextSteps, []string{"wire commands"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("NextSteps = %v, want %v", got, want)
+	}
+	if got, want := state.KnownFailures, []string{"bad state"}; !reflect.DeepEqual(got, want) {
+		t.Errorf("KnownFailures = %v, want %v", got, want)
+	}
+}
+
+func TestStateCommandsRequireExactlyOneArg(t *testing.T) {
+	_, _, run := newTestCmd("dev")
+
+	for _, args := range [][]string{
+		{"note"},
+		{"done", "one", "two"},
+		{"next"},
+		{"fail", "one", "two"},
+	} {
+		if err := run(args...); err == nil {
+			t.Fatalf("%v: expected argument error", args)
+		}
 	}
 }

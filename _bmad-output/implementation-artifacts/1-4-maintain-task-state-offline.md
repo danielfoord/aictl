@@ -1,6 +1,10 @@
+---
+baseline_commit: 037749cb025239cc2d4a713c5cb73a74841f0ad5
+---
+
 # Story 1.4: Maintain Task State offline (`note` / `done` / `next` / `fail`)
 
-Status: ready-for-dev
+Status: done
 
 <!-- Note: Validation is optional. Run validate-create-story for quality check before dev-story. -->
 
@@ -22,19 +26,24 @@ so that my task state never depends on a live provider or network — it's alway
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1 — State-append use-cases in `internal/app` (AC: 1, 2, 3, 4, 6)**
-  - [ ] Add `internal/app/state.go` with the four use-cases. Implement them over a single private helper to avoid duplication, e.g. `func (a *App) appendEntry(ctx, field stateField, value string) error` plus thin `Note/Done/Next/Fail` wrappers — OR four small methods sharing a helper. (DRY: don't copy the load→append→save body four times.)
-  - [ ] Each: resolve cwd → `session.NewPaths` → require `.ai-session/` exists (else a clear sentinel error, e.g. `ErrNoSession`) → `session.LoadState` → append trimmed value to the mapped slice → `session.SaveState`.
-  - [ ] Reject empty/whitespace values with a clear error (consistent with `Start`'s empty-goal handling).
-  - [ ] Print concise confirmation (e.g. `noted decision: "<value>"`).
-- [ ] **Task 2 — Commands in `cmd/aictl/state.go` (AC: 1, 6)**
-  - [ ] Add thin Cobra subcommands `note`, `done`, `next`, `fail`, each `cobra.ExactArgs(1)`, calling the matching `app` method. No logic in `cmd/`. Group them in one file (`cmd/aictl/state.go`) per the architecture tree.
-  - [ ] Register all four on the root command in `root.go`.
-- [ ] **Task 3 — Tests (AC: 1–6)**
-  - [ ] `internal/app/state_test.go` (`t.Chdir` + `t.TempDir`): after `init` (or `start`), each command appends to the right field and persists; multiple appends accumulate in order; values round-trip through YAML; no network.
-  - [ ] No-session case: command without `.ai-session/` returns the `ErrNoSession` sentinel.
-  - [ ] Preservation (FR-4): pre-write a `state.yaml` containing provider-style entries, run a command, assert the pre-existing entries are retained alongside the new one.
-  - [ ] Empty value rejected.
+- [x] **Task 1 — State-append use-cases in `internal/app` (AC: 1, 2, 3, 4, 6)**
+  - [x] Add `internal/app/state.go` with the four use-cases. Implement them over a single private helper to avoid duplication, e.g. `func (a *App) appendEntry(ctx, field stateField, value string) error` plus thin `Note/Done/Next/Fail` wrappers — OR four small methods sharing a helper. (DRY: don't copy the load→append→save body four times.)
+  - [x] Each: resolve cwd → `session.NewPaths` → require `.ai-session/` exists (else a clear sentinel error, e.g. `ErrNoSession`) → `session.LoadState` → append trimmed value to the mapped slice → `session.SaveState`.
+  - [x] Reject empty/whitespace values with a clear error (consistent with `Start`'s empty-goal handling).
+  - [x] Print concise confirmation (e.g. `noted decision: "<value>"`).
+- [x] **Task 2 — Commands in `cmd/aictl/state.go` (AC: 1, 6)**
+  - [x] Add thin Cobra subcommands `note`, `done`, `next`, `fail`, each `cobra.ExactArgs(1)`, calling the matching `app` method. No logic in `cmd/`. Group them in one file (`cmd/aictl/state.go`) per the architecture tree.
+  - [x] Register all four on the root command in `root.go`.
+- [x] **Task 3 — Tests (AC: 1–6)**
+  - [x] `internal/app/state_test.go` (`t.Chdir` + `t.TempDir`): after `init` (or `start`), each command appends to the right field and persists; multiple appends accumulate in order; values round-trip through YAML; no network.
+  - [x] No-session case: command without `.ai-session/` returns the `ErrNoSession` sentinel.
+  - [x] Preservation (FR-4): pre-write a `state.yaml` containing provider-style entries, run a command, assert the pre-existing entries are retained alongside the new one.
+  - [x] Empty value rejected.
+
+### Review Findings
+
+- [x] [Review][Decision] Concurrent state updates can lose entries — Resolved by adding a dedicated transient `.state.lock` for Task State mutations, separate from the active session `.lock`. Evidence: `internal/app/state.go`, `internal/session/paths.go`.
+- [x] [Review][Patch] Canceled command can still mutate state [`internal/app/state.go:74`]
 
 ## Dev Notes
 
@@ -96,14 +105,54 @@ so that my task state never depends on a live provider or network — it's alway
 
 ### Agent Model Used
 
-_(to be filled by dev agent)_
+GPT-5 Codex
 
 ### Debug Log References
+
+- `go test ./internal/app` red phase failed on missing `App.Note/Done/Next/Fail` and `ErrNoSession`.
+- `go test ./cmd/aictl` red phase failed on missing `note` command registration.
+- `go test ./internal/app` passed after adding app use-cases.
+- `go test ./cmd/aictl` passed after adding Cobra commands and root registration.
+- `go build ./...` passed with `GOCACHE=/private/tmp/aictl-gocache`; Go emitted a non-fatal module stat-cache permission warning for `/Users/daniel/go/pkg/mod`.
+- `go test -race -shuffle=on -coverprofile=/private/tmp/aictl-coverage.out -covermode=atomic ./...` passed.
+- `go vet ./...` passed.
+- `gofmt -l $(git ls-files "*.go")` returned no files.
+- `golangci-lint run` could not be executed locally because `golangci-lint` is not installed.
+- Review patch red phase: `go test ./internal/app` failed on ignored canceled context and lost concurrent appends.
+- Review patch verification: `go test ./internal/app` passed after adding context checks and `.state.lock` serialization.
+- Review patch full verification: `go build ./...`, `go test -race -shuffle=on -coverprofile=/private/tmp/aictl-coverage.out -covermode=atomic ./...`, `go vet ./...`, and gofmt check passed.
+
+### Implementation Plan
+
+- Add a single app-layer append helper that trims input, requires an existing `.ai-session/`, loads the current `state.yaml`, appends to the mapped `TaskState` slice, and persists via `session.SaveState`.
+- Keep command files thin: Cobra validates one argument and delegates directly to `internal/app`.
+- Cover field mapping, accumulation, YAML round-trip readability, no-session errors, provider-entry preservation, malformed-state no-clobber behavior, empty input rejection, command registration, and command output.
 
 ### Completion Notes List
 
 - Ultimate context engine analysis completed — comprehensive developer guide created.
+- Implemented `App.Note`, `App.Done`, `App.Next`, and `App.Fail` over a shared load-append-save helper.
+- Added `ErrNoSession` with clear feedback when `.ai-session/` is missing.
+- Added thin Cobra commands `note`, `done`, `next`, and `fail`, and registered them on the root command.
+- Added app and command tests covering AC1-AC6, including malformed `state.yaml` not being overwritten.
+- Verified build, race+shuffle tests, vet, and gofmt locally; `golangci-lint` remains unavailable in this environment.
+- Addressed code review findings: canceled contexts now stop before mutation, and Task State append commands serialize through a dedicated transient `.state.lock`.
+- `.state.lock` is ignored in newly initialized session directories so transient mutation locks are not committed.
 
 ### File List
 
-_(to be filled by dev agent)_
+- `_bmad-output/implementation-artifacts/1-4-maintain-task-state-offline.md` (modified)
+- `_bmad-output/implementation-artifacts/sprint-status.yaml` (modified)
+- `cmd/aictl/root.go` (modified)
+- `cmd/aictl/root_test.go` (modified)
+- `cmd/aictl/state.go` (new)
+- `internal/app/init.go` (modified)
+- `internal/app/init_test.go` (modified)
+- `internal/app/state.go` (new)
+- `internal/app/state_test.go` (new)
+- `internal/session/paths.go` (modified)
+
+### Change Log
+
+- 2026-06-15: Implemented Story 1.4 offline Task State commands (`note`, `done`, `next`, `fail`) with app-layer persistence, Cobra wiring, and tests.
+- 2026-06-15: Addressed code review findings with canceled-context handling and dedicated `.state.lock` serialization for Task State mutations.

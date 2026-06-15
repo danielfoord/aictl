@@ -38,3 +38,7 @@ func (p Paths) GitIgnore() string { return filepath.Join(p.root, ".gitignore") }
 
 // Lock is the path to the single-session lockfile (used from Story 1.3).
 func (p Paths) Lock() string { return filepath.Join(p.root, ".lock") }
+
+// StateLock is the transient lock used to serialize Task State mutations. It
+// is intentionally separate from Lock, which marks an active provider session.
+func (p Paths) StateLock() string { return filepath.Join(p.root, ".state.lock") }

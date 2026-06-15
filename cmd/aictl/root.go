@@ -28,6 +28,10 @@ func newRootCmd(a *app.App, version string) *cobra.Command {
 
 	rootCmd.AddCommand(newInitCmd(a))
 	rootCmd.AddCommand(newStartCmd(a))
+	rootCmd.AddCommand(newNoteCmd(a))
+	rootCmd.AddCommand(newDoneCmd(a))
+	rootCmd.AddCommand(newNextCmd(a))
+	rootCmd.AddCommand(newFailCmd(a))
 
 	return rootCmd
 }
