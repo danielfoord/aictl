@@ -27,12 +27,15 @@ func (u *UI) Out() io.Writer { return u.out }
 // Err returns the error output writer.
 func (u *UI) Err() io.Writer { return u.err }
 
-// Printf writes a formatted message to the output stream.
+// Printf writes a formatted message to the output stream. Write errors are
+// deliberately ignored here (e.g. EPIPE when piped to `head`); a deliberate
+// output-error policy is deferred to the Epic 3 fan-out writer.
 func (u *UI) Printf(format string, args ...any) {
-	fmt.Fprintf(u.out, format, args...)
+	_, _ = fmt.Fprintf(u.out, format, args...)
 }
 
-// Errorf writes a formatted message to the error stream.
+// Errorf writes a formatted message to the error stream. Write errors are
+// deliberately ignored (see Printf).
 func (u *UI) Errorf(format string, args ...any) {
-	fmt.Fprintf(u.err, format, args...)
+	_, _ = fmt.Fprintf(u.err, format, args...)
 }

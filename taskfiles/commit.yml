@@ -1,0 +1,21 @@
+version: "3"
+
+# Included under namespace `commit-staged` (see root Taskfile.yml).
+# Public task names: commit-staged, commit-staged:gemini, commit-staged:codex
+
+tasks:
+
+  default:
+    desc: "Commits all staged files with a generated commit message"
+    cmds:
+      - ./scripts/generate-git-commit-msg.sh
+
+  gemini:
+    desc: "Commits all staged files with a generated commit message (Gemini)"
+    cmds:
+      - ./scripts/generate-git-commit-msg.sh --gemini
+
+  codex:
+    desc: "Commits all staged files with a generated commit message (Codex)"
+    cmds:
+      - ./scripts/generate-git-commit-msg.sh --codex

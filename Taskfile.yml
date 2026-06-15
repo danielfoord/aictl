@@ -1,0 +1,17 @@
+version: "3"
+
+# Task definitions are split by domain under ./taskfiles. Each include's
+# namespace key reproduces the original colon-prefixed task names exactly, so
+# `task <name>` invocations are unchanged. Standalone one-off ops tasks live in
+# this root file.
+
+includes:
+  commit-staged:    ./taskfiles/commit.yml
+
+tasks:
+
+  default:
+    desc: "List all available tasks"
+    cmds:
+      - task --list
+    silent: true

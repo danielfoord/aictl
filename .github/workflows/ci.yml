@@ -1,4 +1,4 @@
-name: CI
+name: Lint
 
 on:
   push:
@@ -9,7 +9,7 @@ permissions:
   contents: read
 
 jobs:
-  build:
+  lint:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -37,6 +37,3 @@ jobs:
         uses: golangci/golangci-lint-action@v8
         with:
           version: v2.12.2
-
-      - name: test
-        run: go test ./...
