@@ -15,3 +15,8 @@ tasks:
     cmds:
       - task --list
     silent: true
+
+  build:
+    desc: "Build the aictl binary"
+    cmds:
+      - go build ./cmd/aictl
