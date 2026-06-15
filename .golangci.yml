@@ -1,0 +1,28 @@
+# golangci-lint v2 configuration.
+# NOTE: verified against the v2 schema but not run locally during initial
+# authoring (golangci-lint was not installed); confirm on first CI run.
+version: "2"
+
+linters:
+  default: standard
+  enable:
+    - depguard
+  settings:
+    depguard:
+      rules:
+        no-network:
+          files:
+            - "$all"
+          deny:
+            - pkg: "net"
+              desc: "aictl makes no network/LLM calls in its core path (NFR-1)"
+            - pkg: "net/http"
+              desc: "aictl makes no network/LLM calls in its core path (NFR-1)"
+            - pkg: "net/url"
+              desc: "aictl makes no network/LLM calls in its core path (NFR-1)"
+            - pkg: "net/rpc"
+              desc: "aictl makes no network/LLM calls in its core path (NFR-1)"
+            - pkg: "crypto/tls"
+              desc: "aictl makes no network/LLM calls in its core path (NFR-1)"
+            - pkg: "golang.org/x/net"
+              desc: "aictl makes no network/LLM calls in its core path (NFR-1)"

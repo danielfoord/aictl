@@ -1,0 +1,16 @@
+# Compiled binary
+/aictl
+/dist/
+
+# Test / coverage output
+*.out
+*.test
+coverage.*
+
+# Go workspace file
+go.work
+go.work.sum
+
+# Editor / OS noise
+.DS_Store
+*.swp

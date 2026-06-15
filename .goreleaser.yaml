@@ -1,0 +1,36 @@
+# GoReleaser configuration (skeleton).
+# Exercised in Story 4.4 (Ship v1.0). Present now so the release path is staked
+# out; not run as part of CI for this story.
+version: 2
+
+project_name: aictl
+
+before:
+  hooks:
+    - go mod tidy
+
+builds:
+  - id: aictl
+    main: ./cmd/aictl
+    binary: aictl
+    env:
+      - CGO_ENABLED=0
+    goos:
+      - darwin
+      - linux
+    goarch:
+      - amd64
+      - arm64
+    ldflags:
+      - -s -w -X main.version={{.Version}}
+
+archives:
+  - id: aictl
+    formats: [tar.gz]
+    name_template: "{{ .ProjectName }}_{{ .Os }}_{{ .Arch }}"
+
+checksum:
+  name_template: "checksums.txt"
+
+release:
+  draft: true
