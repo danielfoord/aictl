@@ -45,7 +45,7 @@ development_status:
   # Epic 1: Durable Task Sessions
   epic-1: in-progress
   1-1-project-foundation-and-skeleton: done
-  1-2-initialize-session-directory: ready-for-dev
+  1-2-initialize-session-directory: done
   1-3-start-session-with-goal: ready-for-dev
   1-4-maintain-task-state-offline: backlog
   epic-1-retrospective: optional

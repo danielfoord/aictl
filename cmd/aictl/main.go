@@ -14,6 +14,7 @@ import (
 	"runtime/debug"
 	"syscall"
 
+	"github.com/danielfoord/aictl/internal/app"
 	"github.com/danielfoord/aictl/internal/ui"
 )
 
@@ -28,8 +29,8 @@ func main() {
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	out := ui.New(os.Stdout, os.Stderr)
-	root := newRootCmd(out, resolveVersion())
+	application := app.New(ui.New(os.Stdout, os.Stderr))
+	root := newRootCmd(application, resolveVersion())
 
 	if err := root.ExecuteContext(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, "aictl:", err)

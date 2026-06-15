@@ -5,6 +5,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/danielfoord/aictl/internal/app"
 	"github.com/danielfoord/aictl/internal/ui"
 )
 
@@ -12,7 +13,7 @@ import (
 // assert on output.
 func newTestCmd(version string) (*bytes.Buffer, *bytes.Buffer, func(args ...string) error) {
 	var out, errBuf bytes.Buffer
-	cmd := newRootCmd(ui.New(&out, &errBuf), version)
+	cmd := newRootCmd(app.New(ui.New(&out, &errBuf)), version)
 	run := func(args ...string) error {
 		cmd.SetArgs(args)
 		return cmd.Execute()
