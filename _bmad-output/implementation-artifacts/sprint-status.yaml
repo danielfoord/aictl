@@ -54,7 +54,7 @@ development_status:
   epic-2: in-progress
   2-1-capture-faithful-git-state: done
   2-2-generate-deterministic-handoff: done
-  2-3-verify-commands-feed-handoff: ready-for-dev
+  2-3-verify-commands-feed-handoff: done
   2-4-last-resort-recovery: backlog
   epic-2-retrospective: optional
 
