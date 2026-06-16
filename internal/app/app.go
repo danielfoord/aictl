@@ -7,14 +7,22 @@
 // business logic out of cmd/ and avoids global mutable state.
 package app
 
-import "github.com/danielfoord/aictl/internal/ui"
+import (
+	"context"
+
+	"github.com/danielfoord/aictl/internal/shell"
+	"github.com/danielfoord/aictl/internal/ui"
+)
+
+type providerRunner func(context.Context, shell.Options) (shell.Result, error)
 
 // App holds aictl's injected dependencies and orchestrates use-cases.
 type App struct {
-	UI *ui.UI
+	UI          *ui.UI
+	runProvider providerRunner
 }
 
 // New constructs an App with its dependencies.
 func New(u *ui.UI) *App {
-	return &App{UI: u}
+	return &App{UI: u, runProvider: shell.Run}
 }

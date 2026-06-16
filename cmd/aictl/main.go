@@ -8,6 +8,7 @@ package main
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/signal"
@@ -33,9 +34,20 @@ func main() {
 	root := newRootCmd(application, resolveVersion())
 
 	if err := root.ExecuteContext(ctx); err != nil {
+		if code, ok := exitCodeFromError(err); ok {
+			os.Exit(code)
+		}
 		fmt.Fprintln(os.Stderr, "aictl:", err)
 		os.Exit(1)
 	}
+}
+
+func exitCodeFromError(err error) (int, bool) {
+	var exitErr app.ExitError
+	if errors.As(err, &exitErr) {
+		return exitErr.Code, true
+	}
+	return 1, false
 }
 
 // resolveVersion prefers the ldflags-injected version, then the module version

@@ -35,6 +35,7 @@ func newRootCmd(a *app.App, version string) *cobra.Command {
 	rootCmd.AddCommand(newHandoffCmd(a))
 	rootCmd.AddCommand(newVerifyCmd(a))
 	rootCmd.AddCommand(newRecoverCmd(a))
+	rootCmd.AddCommand(newRunCmd(a))
 
 	return rootCmd
 }

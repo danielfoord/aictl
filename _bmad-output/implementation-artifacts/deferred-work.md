@@ -43,3 +43,9 @@
 
 - **Resolve true repo root before session lookup** — `App.Recover` follows the current command pattern of using raw CWD. Running from a repo subdirectory misses the repo-root `.ai-session/`; this is the same pre-existing repo-root resolution gap already deferred from Story 1.3. → **shared session/repo-root helper follow-up.**
 - **Decide whether untracked files belong in recovery state** — `git.Diff` captures staged + unstaged tracked diff but not untracked file contents. A recovery prompt can show `(no uncommitted changes)` when only untracked files exist. This traces to the existing git-diff granularity/open-question rather than this story alone. → **git capture semantics follow-up.**
+
+## Deferred from: code review of 3-1-run-provider-in-pty (2026-06-16)
+
+- **stdin→ptmx copy goroutine leak / keystroke steal** — `io.Copy(ptmx, stdin)` (internal/shell/runner.go:80-82) stays blocked on `os.Stdin.Read` after the child exits and `ptmx` is closed; the goroutine leaks and the pending read can swallow the user's next keystroke. Inherent to PTY wrappers; clean interruption of a blocking stdin read is non-trivial. The spec's requirement (unblock the child/output path) is satisfied. → **PTY stdin-copy lifecycle follow-up.**
+- **No `cmd.WaitDelay` on the provider process** — internal/shell/runner.go:84-86. If a grandchild keeps the PTY slave open after the child exits, `<-outputDone` could hang with terminal restore still deferred. Low likelihood; add `WaitDelay` hardening in a later story. → **process shutdown hardening follow-up.**
+- **AC1 quiet/no-interleave + ANSI passthrough not tested** — internal/shell/runner_test.go. No test asserts aictl stays silent while the provider owns the screen or that ANSI/control output is mirrored verbatim. Structural guarantee holds in code (only pre/post UI lines). → **PTY passthrough test follow-up.**
