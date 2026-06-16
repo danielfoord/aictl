@@ -114,6 +114,34 @@ func stripSidePrefix(p string) string {
 	return p
 }
 
+// RedactStatusPaths redacts the path of any `git status --short` line whose
+// file matches the denylist, keeping the two-column status code so the change
+// is still visible. This mirrors the diff redaction so a secret *filename* isn't
+// disclosed via the status section. Rename lines (`old -> new`) match either path.
+func RedactStatusPaths(status string, denylist []string) string {
+	if status == "" || len(denylist) == 0 {
+		return status
+	}
+	lines := strings.Split(status, "\n")
+	for i, ln := range lines {
+		if len(ln) < 4 { // "XY p"
+			continue
+		}
+		code, path := ln[:3], ln[3:] // ln[:2] status, ln[2] = ' '
+		redact := false
+		if oldP, newP, ok := strings.Cut(path, " -> "); ok {
+			redact = matchesDenylist(strings.TrimSpace(oldP), denylist) ||
+				matchesDenylist(strings.TrimSpace(newP), denylist)
+		} else {
+			redact = matchesDenylist(strings.TrimSpace(path), denylist)
+		}
+		if redact {
+			lines[i] = code + "[redacted]"
+		}
+	}
+	return strings.Join(lines, "\n")
+}
+
 // matchesDenylist reports whether path matches any denylist glob, tested against
 // both the full repo-relative path (so directory-scoped globs like `secrets/*`
 // work) and the basename (so `*.pem` works regardless of directory).

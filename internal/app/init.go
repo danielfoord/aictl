@@ -23,6 +23,8 @@ const gitignoreContents = `# Transient / sensitive aictl artifacts — not commi
 .lock
 .state.lock
 .tmp-*
+latest-verify.txt
+command-log.md
 checkpoints/
 `
 

@@ -110,6 +110,21 @@ rename to public/new.txt
 	}
 }
 
+func TestRedactStatusPaths(t *testing.T) {
+	status := " M main.go\n?? .env\nA  keys/server.pem\nR  old.txt -> .env.local"
+	out := RedactStatusPaths(status, []string{".env*", "*.pem"})
+
+	if strings.Contains(out, ".env\n") || strings.Contains(out, "server.pem") || strings.Contains(out, ".env.local") {
+		t.Fatalf("denylisted path leaked through status redaction:\n%s", out)
+	}
+	if !strings.Contains(out, "main.go") {
+		t.Errorf("non-denylisted path should be intact:\n%s", out)
+	}
+	if strings.Count(out, "[redacted]") != 3 {
+		t.Errorf("expected 3 redacted status lines, got:\n%s", out)
+	}
+}
+
 func TestTruncateRuneBoundary(t *testing.T) {
 	s := "aé" // 'a' + 'é' (2 bytes) => 3 bytes total
 	got := truncate(s, 2)

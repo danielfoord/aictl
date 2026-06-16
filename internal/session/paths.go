@@ -42,3 +42,14 @@ func (p Paths) Lock() string { return filepath.Join(p.root, ".lock") }
 // StateLock is the transient lock used to serialize Task State mutations. It
 // is intentionally separate from Lock, which marks an active provider session.
 func (p Paths) StateLock() string { return filepath.Join(p.root, ".state.lock") }
+
+// Handoff is the path to the current Handoff packet (`handoff.md`).
+func (p Paths) Handoff() string { return filepath.Join(p.root, "handoff.md") }
+
+// LatestVerify is the path to the most recent verification output. Populated by
+// `aictl verify` (Story 2.3); read include-if-present by the handoff generator.
+func (p Paths) LatestVerify() string { return filepath.Join(p.root, "latest-verify.txt") }
+
+// CommandLog is the path to the aictl-invoked command log. Read
+// include-if-present by the handoff generator.
+func (p Paths) CommandLog() string { return filepath.Join(p.root, "command-log.md") }

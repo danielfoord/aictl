@@ -2,7 +2,13 @@
 // (`.ai-session/config.yaml`) and its built-in defaults.
 package config
 
-import "github.com/goccy/go-yaml"
+import (
+	"errors"
+	"fmt"
+	"os"
+
+	"github.com/goccy/go-yaml"
+)
 
 // Config is aictl's configuration, persisted as `.ai-session/config.yaml`. It
 // is a public contract: YAML keys are camelCase with explicit struct tags.
@@ -40,4 +46,35 @@ func Unmarshal(data []byte) (Config, error) {
 	var c Config
 	err := yaml.Unmarshal(data, &c)
 	return c, err
+}
+
+// Load reads the Config at path. A missing file yields the built-in defaults so
+// callers always get a usable config. A present config is normalized so an
+// empty denylist or non-positive maxDiffChars can't silently disable the
+// privacy/size guardrails (use a deliberate, documented opt-out instead).
+func Load(path string) (Config, error) {
+	data, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Default(), nil
+		}
+		return Config{}, fmt.Errorf("read config: %w", err)
+	}
+	c, err := Unmarshal(data)
+	if err != nil {
+		return Config{}, err
+	}
+	return c.normalized(), nil
+}
+
+// normalized fills in safe defaults for guardrail fields left empty/zero, so a
+// partial config never silently disables secret redaction or the diff bound.
+func (c Config) normalized() Config {
+	if len(c.Denylist) == 0 {
+		c.Denylist = append([]string(nil), DefaultDenylist...)
+	}
+	if c.Handoff.MaxDiffChars <= 0 {
+		c.Handoff.MaxDiffChars = DefaultMaxDiffChars
+	}
+	return c
 }

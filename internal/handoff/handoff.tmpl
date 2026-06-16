@@ -1,0 +1,60 @@
+# Continue This Coding Task
+
+You are continuing an in-progress coding task. Do not restart it from scratch.
+
+## Goal
+{{if .Goal}}{{.Goal}}{{else}}(no goal recorded){{end}}
+
+## Current Repository State
+Branch: {{if .Branch}}{{.Branch}}{{else}}(unknown / detached){{end}}
+
+### Status
+{{if .Status}}{{.Status}}{{else}}(working tree clean){{end}}
+
+### Diff
+{{if .Diff}}
+```diff
+{{.Diff}}
+```
+{{else}}(no uncommitted changes){{end}}
+{{- if .RecentCommits}}
+
+## Recent Commits
+{{.RecentCommits}}
+{{- end}}
+{{- if .VerifyOutput}}
+
+## Latest Verification Output
+```
+{{.VerifyOutput}}
+```
+{{- end}}
+{{- if .CommandLog}}
+
+## Recent Commands
+{{.CommandLog}}
+{{- end}}
+{{- if .Decisions}}
+
+## Decisions
+{{range .Decisions}}- {{.}}
+{{end}}
+{{- end}}
+{{- if .KnownFailures}}
+
+## Known Failures
+{{range .KnownFailures}}- {{.}}
+{{end}}
+{{- end}}
+{{- if .NextSteps}}
+
+## Next Steps
+{{range .NextSteps}}- {{.}}
+{{end}}
+{{- end}}
+
+## Instructions
+- Continue from the current repository state; do not restart the task from scratch.
+- Inspect the changed files before editing.
+- Prefer small, safe changes.
+- Run the verification command(s) before finishing.
