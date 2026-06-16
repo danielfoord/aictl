@@ -118,7 +118,7 @@ func TestInitGitignoreIgnoresTransient(t *testing.T) {
 	if err != nil {
 		t.Fatalf("read .gitignore: %v", err)
 	}
-	for _, want := range []string{".lock", ".state.lock", ".tmp-*", "latest-verify.txt", "command-log.md", "checkpoints/"} {
+	for _, want := range []string{".lock", ".state.lock", ".tmp-*", "latest-verify.txt", "command-log.md", "transcript.ansi", "checkpoints/"} {
 		if !strings.Contains(string(data), want) {
 			t.Errorf(".gitignore missing entry %q; got:\n%s", want, data)
 		}

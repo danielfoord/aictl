@@ -49,6 +49,11 @@ func (p Paths) Handoff() string { return filepath.Join(p.root, "handoff.md") }
 // Recovery is the path to the last-resort recovery prompt (`recovery.md`).
 func (p Paths) Recovery() string { return filepath.Join(p.root, "recovery.md") }
 
+// Transcript is the path to the latest provider-run transcript (`transcript.ansi`),
+// the raw-ANSI output stream of the most recent Run (Story 3.2). Relocation into
+// a per-Attempt checkpoint directory is introduced in Story 3.4.
+func (p Paths) Transcript() string { return filepath.Join(p.root, "transcript.ansi") }
+
 // LatestVerify is the path to the most recent verification output. Populated by
 // `aictl verify` (Story 2.3); read include-if-present by the handoff generator.
 func (p Paths) LatestVerify() string { return filepath.Join(p.root, "latest-verify.txt") }

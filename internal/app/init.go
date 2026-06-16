@@ -18,13 +18,15 @@ var ErrAlreadyInitialized = errors.New("aictl is already initialized here (.ai-s
 // gitignoreContents ignores the transient / potentially-sensitive parts of the
 // Session Directory. config.yaml, state.yaml and handoff.md stay tracked so the
 // portable session travels with the repo; the lockfile is machine-local and
-// checkpoints may contain raw transcripts, so both are ignored.
+// checkpoints and the per-run transcript may contain raw provider output
+// (possibly secrets), so they are ignored.
 const gitignoreContents = `# Transient / sensitive aictl artifacts — not committed
 .lock
 .state.lock
 .tmp-*
 latest-verify.txt
 command-log.md
+transcript.ansi
 checkpoints/
 `
 

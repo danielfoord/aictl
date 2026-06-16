@@ -23,6 +23,10 @@ type Options struct {
 	// field is retained for the documented Options shape and a possible future
 	// non-PTY execution path.
 	Stderr io.Writer
+	// Transcript, when non-nil, receives a byte-identical copy of the PTY output
+	// stream (raw ANSI) via the fan-out writer. A transcript write failure never
+	// degrades the on-screen passthrough. Nil means terminal-only mirroring.
+	Transcript io.Writer
 }
 
 // Result is the provider process result after the PTY has been cleaned up.
@@ -81,9 +85,13 @@ func Run(ctx context.Context, opts Options) (res Result, err error) {
 	stopResize := startResizeWatcher(stdin, ptmx, nil)
 	defer stopResize()
 
+	// Single-write fan-out: PTY output is mirrored to the terminal once and teed
+	// to the transcript (and, from Story 4.1, the usage detector) — no extra
+	// buffering that could reorder bytes or degrade the TUI (NFR-2).
+	out := newFanWriter(stdout, opts.Transcript)
 	outputDone := make(chan error, 1)
 	go func() {
-		_, copyErr := io.Copy(stdout, ptmx)
+		_, copyErr := io.Copy(out, ptmx)
 		outputDone <- copyErr
 	}()
 

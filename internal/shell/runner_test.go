@@ -57,6 +57,37 @@ func TestRunPassesInputMirrorsOutputAndPreservesExitCode(t *testing.T) {
 	}
 }
 
+func TestRunCapturesTranscriptByteIdentical(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix PTY story excludes Windows")
+	}
+
+	var term, transcript bytes.Buffer
+	res, err := Run(context.Background(), Options{
+		Command: os.Args[0],
+		Args: []string{
+			"-test.run=TestHelperProcess",
+			"--",
+			"emit-ansi",
+		},
+		Env:        append(os.Environ(), "GO_WANT_HELPER_PROCESS=1"),
+		Stdout:     &term,
+		Transcript: &transcript,
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.ExitCode != 0 {
+		t.Fatalf("ExitCode = %d, want 0", res.ExitCode)
+	}
+	if !bytes.Equal(term.Bytes(), transcript.Bytes()) {
+		t.Fatalf("transcript not byte-identical to terminal:\n term=%q\n  log=%q", term.Bytes(), transcript.Bytes())
+	}
+	if !bytes.Contains(transcript.Bytes(), []byte("\x1b[")) {
+		t.Fatalf("raw ANSI escape not preserved in transcript: %q", transcript.Bytes())
+	}
+}
+
 func TestRunMapsSignalExitTo128PlusSignal(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix signal semantics story excludes Windows")
@@ -234,6 +265,9 @@ func TestHelperProcess(t *testing.T) {
 		os.Exit(2)
 	case "sleep":
 		time.Sleep(10 * time.Second)
+		os.Exit(0)
+	case "emit-ansi":
+		_, _ = os.Stdout.WriteString("\x1b[31mRED\x1b[0m line\n")
 		os.Exit(0)
 	default:
 		os.Exit(2)

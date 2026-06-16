@@ -16,6 +16,9 @@ func TestRunCommandRequiresProvider(t *testing.T) {
 }
 
 func TestRunCommandPassesProviderArgsAndReturnsExitError(t *testing.T) {
+	// Run the real `run` command in a temp dir so the per-run transcript is not
+	// written into the source tree.
+	t.Chdir(t.TempDir())
 	t.Setenv("GO_WANT_RUN_PROVIDER_HELPER", "1")
 	_, _, run := newTestCmd("dev")
 
