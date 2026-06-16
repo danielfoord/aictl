@@ -32,6 +32,7 @@ func TestNextSequenceScansExistingCheckpointDirs(t *testing.T) {
 	for _, name := range []string{
 		"0001-before-claude",
 		"0001-after-claude",
+		"0002-checkpoint-manual-save",
 		"0007-after-codex",
 		"10000-before-gemini",
 		"notes",
@@ -48,6 +49,123 @@ func TestNextSequenceScansExistingCheckpointDirs(t *testing.T) {
 	}
 	if got != 10001 {
 		t.Fatalf("NextSequence = %d, want 10001", got)
+	}
+}
+
+func TestCaptureManualWritesExpectedArtifacts(t *testing.T) {
+	root := t.TempDir()
+	paths := session.NewPaths(root)
+	if err := os.MkdirAll(paths.Checkpoints(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	manual, err := CaptureManual(context.Background(), ManualOptions{
+		Paths:        paths,
+		Sequence:     3,
+		Label:        "../Before risky refactor",
+		State:        session.TaskState{Goal: "Ship checkpoints", NextSteps: []string{"add command"}, Decisions: []string{"reuse checkpoint package"}, KnownFailures: []string{"none"}},
+		CommandLog:   "2026-06-16T12:00:00Z $ go test ./... (exit 0)\n",
+		LatestVerify: "ok\n",
+		Git:          GitState{Available: true, Status: " M main.go\n", Diff: "diff --git a/main.go b/main.go\n", RecentCommits: "abc123 commit\n"},
+	})
+	if err != nil {
+		t.Fatalf("CaptureManual: %v", err)
+	}
+	if manual.Sequence != 3 || filepath.Base(manual.Dir) != "0003-checkpoint-Before-risky-refactor" {
+		t.Fatalf("manual checkpoint = %d %q", manual.Sequence, filepath.Base(manual.Dir))
+	}
+	for _, name := range []string{"git-status.txt", "git-diff.patch", "recent-commits.txt", "command-log.md", "summary.md", "latest-verify.txt"} {
+		if _, err := os.Stat(filepath.Join(manual.Dir, name)); err != nil {
+			t.Fatalf("expected %s: %v", name, err)
+		}
+	}
+	summary, err := os.ReadFile(filepath.Join(manual.Dir, "summary.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"Before risky refactor", "Ship checkpoints", "add command", "reuse checkpoint package", "none", "Git available: true"} {
+		if !strings.Contains(string(summary), want) {
+			t.Fatalf("summary missing %q:\n%s", want, summary)
+		}
+	}
+}
+
+func TestCaptureManualAllocatesAfterRunCheckpoints(t *testing.T) {
+	root := t.TempDir()
+	paths := session.NewPaths(root)
+	for _, name := range []string{
+		"0001-before-claude",
+		"0001-after-claude",
+		"0002-checkpoint-before-risk",
+	} {
+		if err := os.MkdirAll(paths.CheckpointDir(name), 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	manual, err := CaptureManual(context.Background(), ManualOptions{
+		Paths: paths,
+		Label: "after risk",
+	})
+	if err != nil {
+		t.Fatalf("CaptureManual: %v", err)
+	}
+	if manual.Sequence != 3 || filepath.Base(manual.Dir) != "0003-checkpoint-after-risk" {
+		t.Fatalf("manual checkpoint = %d %q, want 3/0003-checkpoint-after-risk", manual.Sequence, filepath.Base(manual.Dir))
+	}
+}
+
+func TestCaptureManualRejectsBlankLabel(t *testing.T) {
+	root := t.TempDir()
+	paths := session.NewPaths(root)
+	if err := os.MkdirAll(paths.Checkpoints(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	_, err := CaptureManual(context.Background(), ManualOptions{
+		Paths: paths,
+		Label: " \t ",
+	})
+	if err == nil {
+		t.Fatal("expected blank label error")
+	}
+	entries, readErr := os.ReadDir(paths.Checkpoints())
+	if readErr != nil {
+		t.Fatal(readErr)
+	}
+	if len(entries) != 0 {
+		t.Fatalf("blank label should not create checkpoint dirs, got %d", len(entries))
+	}
+}
+
+func TestCaptureManualPersistsGitUnavailableSummary(t *testing.T) {
+	root := t.TempDir()
+	paths := session.NewPaths(root)
+
+	manual, err := CaptureManual(context.Background(), ManualOptions{
+		Paths:    paths,
+		RepoRoot: root,
+		Label:    "outside git",
+		State:    session.TaskState{Goal: "snapshot"},
+	})
+	if err != nil {
+		t.Fatalf("CaptureManual: %v", err)
+	}
+	summary, err := os.ReadFile(filepath.Join(manual.Dir, "summary.md"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(summary), "Git available: false") {
+		t.Fatalf("summary should show unavailable git:\n%s", summary)
+	}
+}
+
+func TestSafeLabelNameBounds(t *testing.T) {
+	if got := SafeLabelName(strings.Repeat("a", 500)); len(got) > maxLabelNameLen {
+		t.Fatalf("SafeLabelName length = %d, want <= %d", len(got), maxLabelNameLen)
+	}
+	if got := SafeLabelName("..."); got != "checkpoint" {
+		t.Fatalf("degenerate label = %q, want checkpoint", got)
 	}
 }
 

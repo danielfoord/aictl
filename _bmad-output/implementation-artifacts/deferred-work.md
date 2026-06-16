@@ -58,5 +58,19 @@
 
 ## Deferred from: code review of 3-3-provider-adapters-trio-config-injection (2026-06-16)
 
+## Deferred from: code review of 3-5-on-demand-checkpoint (2026-06-16)
+
+- **No input size limits on CommandLog/LatestVerify** — existing maxDiffChars covers diffs but CommandLog and LatestVerify read by `readIfExists` have no size cap. Pre-existing pattern shared across checkpoint paths.
+- **`strings.Contains` could match substrings in future phase constants** — `NextSequence` uses `strings.Contains(name, "-"+manualPhase+"-")`. A future phase constant like "post-checkpoint" would match incorrectly. Pre-existing design pattern.
+- **`ManualOptions.Git` field lets callers bypass denylist** — if caller pre-populates `opts.Git`, the `Denylist` field is silently ignored. Consistent with the same pattern in `PreOptions`. Not currently exploited.
+- **No state lock during concurrent mutation** — `App.Checkpoint` reads TaskState without acquiring the state lock. Pre-existing pattern shared across all app commands.
+
+## Deferred from: code review of 3-3-provider-adapters-trio-config-injection (2026-06-16)
+
 - **paste/stdin injection robustness** — `shell.Options.InitialInput` is written 250ms after launch (`internal/shell/runner.go`) with no TUI-readiness handshake, a hardcoded `"\r"` submit byte, and possible interleaving with early keystrokes (both the injection and the stdin copy write the same ptmx). Inherent to the paste approach and a known PRD open question; `file-ref` (no PTY write) is the robust default for the Trio. → **paste-injection reliability follow-up.**
 - **Provider-specific positional-arg placement** — `internal/providers/injection.go` appends the prompt as the final positional arg; a provider that needs the prompt behind a flag (e.g. `-p`) or a `--` separator relies on config `args` for now. → **per-provider arg-shape follow-up.**
+
+## Deferred from: code review of 3-5-on-demand-checkpoint (2026-06-16)
+
+- **Checkpoint directory/file permissions** — manual (and run) checkpoint dirs are `0o755` and files use `filePerm` (≈`0o644`), looser than the transcript's `0o600`, while a redacted `git-diff.patch` can still hold sensitive non-denylisted content. Pre-existing Story 3.4 posture; `checkpoints/` is gitignored. → **tighten checkpoint perms follow-up.**
+- **Partial checkpoint distinguishability** — `CaptureManual` writes artifacts in nondeterministic map order and, on a mid-write failure, leaves a partial directory (spec-accepted for forensics) that `NextSequence` still counts. Deterministic ordered writes and/or a completion marker would let consumers tell complete from truncated. → **checkpoint completion-marker follow-up.**

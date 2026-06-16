@@ -117,6 +117,52 @@ func TestStateCommandsRequireExactlyOneArg(t *testing.T) {
 	}
 }
 
+func TestRootHelpMentionsCheckpointCommand(t *testing.T) {
+	out, _, run := newTestCmd("dev")
+	if err := run("--help"); err != nil {
+		t.Fatalf("--help returned error: %v", err)
+	}
+	if got := out.String(); !strings.Contains(got, "checkpoint") {
+		t.Fatalf("--help output %q does not mention checkpoint command", got)
+	}
+}
+
+func TestCheckpointCommandRequiresExactlyOneLabel(t *testing.T) {
+	_, _, run := newTestCmd("dev")
+	for _, args := range [][]string{
+		{"checkpoint"},
+		{"checkpoint", "one", "two"},
+	} {
+		if err := run(args...); err == nil {
+			t.Fatalf("%v: expected argument error", args)
+		}
+	}
+}
+
+func TestCheckpointCommandWritesManualCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	if err := exec.Command("git", "-C", dir, "init").Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	t.Chdir(dir)
+	out, _, run := newTestCmd("dev")
+
+	if err := run("start", "checkpoint through root"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	out.Reset()
+
+	if err := run("checkpoint", "../Before risky refactor"); err != nil {
+		t.Fatalf("checkpoint: %v", err)
+	}
+	if !strings.Contains(out.String(), "Wrote checkpoint 0001-checkpoint-Before-risky-refactor") {
+		t.Fatalf("checkpoint output missing success message: %q", out.String())
+	}
+	if _, err := os.Stat(filepath.Join(session.NewPaths(dir).Checkpoints(), "0001-checkpoint-Before-risky-refactor", "summary.md")); err != nil {
+		t.Fatalf("expected manual checkpoint summary: %v", err)
+	}
+}
+
 func TestRecoverCommandWritesRecoveryPrompt(t *testing.T) {
 	dir := t.TempDir()
 	if err := exec.Command("git", "-C", dir, "init").Run(); err != nil {

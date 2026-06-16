@@ -17,8 +17,9 @@ import (
 )
 
 const (
-	prePhase  = "before"
-	postPhase = "after"
+	prePhase    = "before"
+	postPhase   = "after"
+	manualPhase = "checkpoint"
 )
 
 // FilesChanged is the evidence-backed verdict comparing before/after git state.
@@ -55,6 +56,15 @@ type Post struct {
 	FilesChanged FilesChanged
 }
 
+// Manual is the created on-demand checkpoint.
+type Manual struct {
+	Sequence  int
+	Label     string
+	LabelName string
+	Dir       string
+	Git       GitState
+}
+
 // PreOptions describes one pre-run checkpoint capture.
 type PreOptions struct {
 	Paths           session.Paths
@@ -77,6 +87,20 @@ type PostOptions struct {
 	ExitCode     int
 	Transcript   []byte
 	PostGit      GitState
+	Denylist     []string
+	MaxDiffChars int
+}
+
+// ManualOptions describes one user-requested checkpoint capture.
+type ManualOptions struct {
+	Paths        session.Paths
+	RepoRoot     string
+	Sequence     int
+	Label        string
+	State        session.TaskState
+	CommandLog   string
+	LatestVerify string
+	Git          GitState
 	Denylist     []string
 	MaxDiffChars int
 }
@@ -126,7 +150,9 @@ func NextSequence(paths session.Paths) (int, error) {
 		if len(name) < 11 {
 			continue
 		}
-		if !(strings.Contains(name, "-"+prePhase+"-") || strings.Contains(name, "-"+postPhase+"-")) {
+		if !(strings.Contains(name, "-"+prePhase+"-") ||
+			strings.Contains(name, "-"+postPhase+"-") ||
+			strings.Contains(name, "-"+manualPhase+"-")) {
 			continue
 		}
 		seq, ok := parseCheckpointSequence(name)
@@ -181,6 +207,8 @@ func CapturePre(ctx context.Context, opts PreOptions) (Pre, error) {
 		var err error
 		gitState, err = CaptureGit(ctx, opts.RepoRoot, opts.Denylist, opts.MaxDiffChars)
 		if err != nil {
+			// Fail closed before a run: a real pre-run git failure aborts the
+			// checkpoint rather than launching with unknown state (NFR-3).
 			return Pre{}, err
 		}
 	}
@@ -250,6 +278,65 @@ func CapturePost(ctx context.Context, opts PostOptions) (Post, error) {
 	return Post{Sequence: opts.Pre.Sequence, ProviderName: provider, Dir: dir, Git: gitState, FilesChanged: verdict}, nil
 }
 
+// CaptureManual persists an on-demand labeled checkpoint and returns its metadata.
+func CaptureManual(ctx context.Context, opts ManualOptions) (Manual, error) {
+	label := strings.TrimSpace(opts.Label)
+	if label == "" {
+		return Manual{}, errors.New("checkpoint label must not be empty")
+	}
+	gitState := opts.Git
+	if emptyGitState(gitState) && opts.RepoRoot != "" {
+		var err error
+		gitState, err = CaptureGit(ctx, opts.RepoRoot, opts.Denylist, opts.MaxDiffChars)
+		if err != nil {
+			gitState = GitState{
+				Available: false,
+				Status:    fmt.Sprintf("git capture failed: %v", err),
+			}
+		}
+	}
+
+	labelName := SafeLabelName(label)
+	seq, dir, err := reserveManualCheckpointDir(opts.Paths, opts.Sequence, labelName)
+	if err != nil {
+		return Manual{}, err
+	}
+	files := map[string][]byte{
+		"git-status.txt":     []byte(gitState.Status),
+		"git-diff.patch":     []byte(gitState.Diff),
+		"recent-commits.txt": []byte(gitState.RecentCommits),
+		"command-log.md":     []byte(opts.CommandLog),
+		"summary.md":         []byte(renderManualSummary(label, opts.State, gitState)),
+	}
+	if opts.LatestVerify != "" {
+		files["latest-verify.txt"] = []byte(opts.LatestVerify)
+	}
+	for name, data := range files {
+		if err := session.WriteAtomic(filepath.Join(dir, name), data, filePerm(name)); err != nil {
+			return Manual{}, fmt.Errorf("write manual checkpoint %s: %w", name, err)
+		}
+	}
+	return Manual{Sequence: seq, Label: label, LabelName: labelName, Dir: dir, Git: gitState}, nil
+}
+
+// maxLabelNameLen bounds the sanitized label so a checkpoint directory name
+// stays well under the filesystem NAME_MAX (255) once the sequence + phase
+// prefix is added.
+const maxLabelNameLen = 80
+
+// SafeLabelName returns a filesystem-safe, readable checkpoint label name,
+// bounded to maxLabelNameLen so a pathological label cannot exceed NAME_MAX.
+func SafeLabelName(label string) string {
+	name := strings.Trim(SafeProviderName(label), ".-")
+	if len(name) > maxLabelNameLen {
+		name = strings.Trim(name[:maxLabelNameLen], ".-")
+	}
+	if name == "" {
+		return "checkpoint"
+	}
+	return name
+}
+
 // DetermineFilesChanged compares persisted git evidence conservatively.
 func DetermineFilesChanged(pre, post GitState) FilesChanged {
 	if !pre.Available || !post.Available {
@@ -293,6 +380,36 @@ func reservePreCheckpointDir(paths session.Paths, requestedSeq int, provider str
 	}
 }
 
+func reserveManualCheckpointDir(paths session.Paths, requestedSeq int, label string) (int, string, error) {
+	if err := ensureDirDurable(paths.Checkpoints()); err != nil {
+		return 0, "", fmt.Errorf("create checkpoints directory: %w", err)
+	}
+	seq := requestedSeq
+	if seq <= 0 {
+		var err error
+		seq, err = NextSequence(paths)
+		if err != nil {
+			return 0, "", err
+		}
+	}
+	for attempts := 0; attempts < 1000; attempts++ {
+		dirName := checkpointDirName(seq, manualPhase, label)
+		dir := paths.CheckpointDir(dirName)
+		if err := os.Mkdir(dir, 0o755); err != nil {
+			if requestedSeq <= 0 && errors.Is(err, os.ErrExist) {
+				seq++
+				continue
+			}
+			return 0, "", fmt.Errorf("create manual checkpoint directory: %w", err)
+		}
+		if err := session.SyncDir(paths.Checkpoints()); err != nil {
+			return 0, "", err
+		}
+		return seq, dir, nil
+	}
+	return 0, "", errors.New("manual checkpoint directory reservation: too many collisions")
+}
+
 func ensureDirDurable(dir string) error {
 	if err := os.MkdirAll(dir, 0o755); err != nil {
 		return err
@@ -330,6 +447,33 @@ func containsRedaction(state GitState) bool {
 
 func emptyGitState(state GitState) bool {
 	return !state.Available && state.Status == "" && state.Diff == "" && state.RecentCommits == ""
+}
+
+func renderManualSummary(label string, state session.TaskState, gitState GitState) string {
+	var b strings.Builder
+	b.WriteString("# Manual Checkpoint Summary\n\n")
+	fmt.Fprintf(&b, "Label: %s\n", label)
+	fmt.Fprintf(&b, "Goal: %s\n", state.Goal)
+	fmt.Fprintf(&b, "Git available: %t\n", gitState.Available)
+	if len(state.NextSteps) > 0 {
+		b.WriteString("\nNext steps:\n")
+		for _, step := range state.NextSteps {
+			fmt.Fprintf(&b, "- %s\n", step)
+		}
+	}
+	if len(state.Decisions) > 0 {
+		b.WriteString("\nDecisions:\n")
+		for _, decision := range state.Decisions {
+			fmt.Fprintf(&b, "- %s\n", decision)
+		}
+	}
+	if len(state.KnownFailures) > 0 {
+		b.WriteString("\nKnown failures:\n")
+		for _, failure := range state.KnownFailures {
+			fmt.Fprintf(&b, "- %s\n", failure)
+		}
+	}
+	return b.String()
 }
 
 func renderSummary(provider string, state session.TaskState, gitState GitState) string {
