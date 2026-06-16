@@ -8,6 +8,8 @@ import (
 	"os"
 	"os/exec"
 
+	"github.com/danielfoord/aictl/internal/config"
+	"github.com/danielfoord/aictl/internal/providers"
 	"github.com/danielfoord/aictl/internal/session"
 	"github.com/danielfoord/aictl/internal/shell"
 )
@@ -21,20 +23,42 @@ func (e ExitError) Error() string {
 	return fmt.Sprintf("provider exited with code %d", e.Code)
 }
 
-// Run launches a provider executable through the shell PTY runner.
-func (a *App) Run(ctx context.Context, provider string, args []string) (shell.Result, error) {
-	path, err := exec.LookPath(provider)
+// Run resolves the named provider through the registry (built-in Trio overlaid
+// by config), injects the handoff prompt per the provider's mode, and launches
+// it through the shell PTY runner. An unknown name runs as a bare executable
+// with no injection (preserving "run any CLI").
+func (a *App) Run(ctx context.Context, name string, userArgs []string) (shell.Result, error) {
+	root, err := os.Getwd()
 	if err != nil {
-		return shell.Result{ExitCode: 1}, fmt.Errorf("provider executable not found %q: %w", provider, err)
+		return shell.Result{ExitCode: 1}, fmt.Errorf("determine working directory: %w", err)
+	}
+	paths := session.NewPaths(root)
+
+	cfg, err := config.Load(paths.Config())
+	if err != nil {
+		return shell.Result{ExitCode: 1}, err
 	}
 
-	transcript, closeTranscript, err := openTranscript()
+	command, injection, err := resolveLaunch(providers.Resolve(cfg), name, paths.Handoff(), userArgs)
+	if err != nil {
+		return shell.Result{ExitCode: 1}, err
+	}
+
+	// Resolve and validate the executable before any side effects (Story 3.1
+	// AC6): a missing command fails here, before raw mode and before the
+	// transcript is created.
+	resolvedPath, err := exec.LookPath(command)
+	if err != nil {
+		return shell.Result{ExitCode: 1}, fmt.Errorf("provider executable not found %q: %w", command, err)
+	}
+
+	transcript, closeTranscript, err := openTranscript(paths)
 	if err != nil {
 		return shell.Result{ExitCode: 1}, err
 	}
 	defer closeTranscript()
 
-	a.UI.Printf("Launching %s\n", provider)
+	a.UI.Printf("Launching %s\n", name)
 	// Stay silent while the provider owns the screen: buffer any aictl output
 	// produced during the run and flush it once the provider exits (NFR-2/NFR-5).
 	a.UI.Mute()
@@ -42,22 +66,40 @@ func (a *App) Run(ctx context.Context, provider string, args []string) (shell.Re
 	// muted. Flush is idempotent, so the inline Flush on the normal path wins.
 	defer a.UI.Flush()
 	res, err := a.runProvider(ctx, shell.Options{
-		Command:    path,
-		Args:       args,
-		Stdin:      os.Stdin,
-		Stdout:     os.Stdout,
-		Stderr:     os.Stderr,
-		Transcript: transcript,
+		Command:      resolvedPath,
+		Args:         injection.Args,
+		Stdin:        os.Stdin,
+		Stdout:       os.Stdout,
+		Stderr:       os.Stderr,
+		Transcript:   transcript,
+		InitialInput: injection.InitialInput,
 	})
 	a.UI.Flush()
 	if err != nil {
 		return res, err
 	}
-	a.UI.Printf("Provider %s exited with code %d\n", provider, res.ExitCode)
+	a.UI.Printf("Provider %s exited with code %d\n", name, res.ExitCode)
 	if res.ExitCode != 0 {
 		return res, ExitError{Code: res.ExitCode}
 	}
 	return res, nil
+}
+
+// resolveLaunch turns the requested name into a command and an injection plan.
+// A name in the resolved registry uses its command + prompt injection; an
+// unknown name falls back to a bare executable with no injection.
+func resolveLaunch(resolved map[string]providers.Provider, name, handoffPath string, userArgs []string) (string, providers.Injection, error) {
+	p, ok := providers.Lookup(resolved, name)
+	if !ok {
+		return name, providers.Injection{Args: userArgs}, nil
+	}
+	if p.Command == "" {
+		return "", providers.Injection{}, fmt.Errorf("provider %q has no command configured", name)
+	}
+	if !p.Mode.Valid() {
+		return "", providers.Injection{}, fmt.Errorf("provider %q has unknown injection mode %q (want file-ref, arg, stdin, or paste)", name, p.Mode)
+	}
+	return p.Command, p.Inject(handoffPath, userArgs), nil
 }
 
 // openTranscript creates the per-run transcript stream at
@@ -65,12 +107,7 @@ func (a *App) Run(ctx context.Context, provider string, args []string) (shell.Re
 // does not exist yet (without requiring `aictl init`). The transcript is a live
 // output stream, so it is opened directly rather than through
 // session.WriteAtomic, which is for atomic whole-buffer snapshots, not streams.
-func openTranscript() (io.Writer, func(), error) {
-	root, err := os.Getwd()
-	if err != nil {
-		return nil, func() {}, fmt.Errorf("determine working directory: %w", err)
-	}
-	paths := session.NewPaths(root)
+func openTranscript(paths session.Paths) (io.Writer, func(), error) {
 	if err := os.MkdirAll(paths.Dir(), 0o755); err != nil {
 		return nil, func() {}, fmt.Errorf("create session directory: %w", err)
 	}

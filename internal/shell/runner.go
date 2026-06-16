@@ -8,7 +8,12 @@ import (
 	"io"
 	"os"
 	"os/exec"
+	"time"
 )
+
+// initialInputDelay gives an interactive TUI time to finish initializing before
+// injected prompt bytes (paste/stdin modes) are written into the PTY.
+const initialInputDelay = 250 * time.Millisecond
 
 // Options describes one supervised interactive process run.
 type Options struct {
@@ -27,6 +32,10 @@ type Options struct {
 	// stream (raw ANSI) via the fan-out writer. A transcript write failure never
 	// degrades the on-screen passthrough. Nil means terminal-only mirroring.
 	Transcript io.Writer
+	// InitialInput, when non-empty, is written into the PTY a short delay after
+	// the child starts (used for paste/stdin prompt injection, Story 3.3). The
+	// write is best-effort and never aborts the run. Empty means no injection.
+	InitialInput []byte
 }
 
 // Result is the provider process result after the PTY has been cleaned up.
@@ -95,11 +104,29 @@ func Run(ctx context.Context, opts Options) (res Result, err error) {
 		outputDone <- copyErr
 	}()
 
+	// Prompt injection (paste/stdin): write the prompt into the PTY once, a short
+	// delay after launch so the provider's TUI is ready. Best-effort — a write
+	// error is ignored and never aborts the run. injectDone is closed when the
+	// child exits so a fast-exiting provider doesn't leave this goroutine parked
+	// on the timer or write into an already-closed PTY.
+	injectDone := make(chan struct{})
+	if len(opts.InitialInput) > 0 {
+		go func() {
+			select {
+			case <-time.After(initialInputDelay):
+				_, _ = ptmx.Write(opts.InitialInput)
+			case <-ctx.Done():
+			case <-injectDone:
+			}
+		}()
+	}
+
 	go func() {
 		_, _ = io.Copy(ptmx, stdin)
 	}()
 
 	waitErr := cmd.Wait()
+	close(injectDone)
 	_ = ptmx.Close()
 	<-outputDone
 

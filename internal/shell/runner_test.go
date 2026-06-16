@@ -88,6 +88,36 @@ func TestRunCapturesTranscriptByteIdentical(t *testing.T) {
 	}
 }
 
+func TestRunWritesInitialInputToPTY(t *testing.T) {
+	if runtime.GOOS == "windows" {
+		t.Skip("Unix PTY story excludes Windows")
+	}
+
+	var out bytes.Buffer
+	res, err := Run(context.Background(), Options{
+		Command: os.Args[0],
+		Args: []string{
+			"-test.run=TestHelperProcess",
+			"--",
+			"echo-then-exit",
+			"0",
+		},
+		Env:          append(os.Environ(), "GO_WANT_HELPER_PROCESS=1"),
+		Stdout:       &out,
+		InitialInput: []byte("INJECTED\r"),
+	})
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if res.ExitCode != 0 {
+		t.Fatalf("ExitCode = %d, want 0", res.ExitCode)
+	}
+	got := normalizePTYOutput(out.String())
+	if !strings.Contains(got, "echo: INJECTED") {
+		t.Fatalf("injected input not delivered to the child:\n%s", got)
+	}
+}
+
 func TestRunMapsSignalExitTo128PlusSignal(t *testing.T) {
 	if runtime.GOOS == "windows" {
 		t.Skip("Unix signal semantics story excludes Windows")

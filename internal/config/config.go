@@ -22,12 +22,21 @@ type Config struct {
 	Denylist []string `yaml:"denylist"`
 }
 
-// Provider is a provider adapter definition. It is expanded in later stories
-// (prompt-injection modes, etc.); the fields here are the v1 essentials.
+// Provider is a provider adapter definition that overlays the built-in registry
+// (Story 3.3). Empty fields leave the corresponding built-in default in place.
 type Provider struct {
-	Command            string   `yaml:"command"`
-	Args               []string `yaml:"args"`
-	UsageLimitPatterns []string `yaml:"usageLimitPatterns"`
+	Command            string          `yaml:"command"`
+	Args               []string        `yaml:"args"`
+	UsageLimitPatterns []string        `yaml:"usageLimitPatterns"`
+	PromptInjection    PromptInjection `yaml:"promptInjection"`
+}
+
+// PromptInjection configures how the handoff prompt is delivered to a provider:
+// Mode is one of file-ref (default) / arg / stdin / paste; Text is the injected
+// text (empty falls back to the built-in file-reference instruction).
+type PromptInjection struct {
+	Mode string `yaml:"mode"`
+	Text string `yaml:"text"`
 }
 
 // Handoff holds handoff-generation options.

@@ -36,6 +36,50 @@ func TestLoadNormalizesEmptyGuardrails(t *testing.T) {
 	}
 }
 
+func TestProviderPromptInjectionRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yamlText := "providers:\n" +
+		"  myai:\n" +
+		"    command: myai-cli\n" +
+		"    args: [\"--flag\"]\n" +
+		"    promptInjection:\n" +
+		"      mode: arg\n" +
+		"      text: \"continue please\"\n" +
+		"    usageLimitPatterns: [\"quota\"]\n"
+	if err := os.WriteFile(path, []byte(yamlText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	p, ok := cfg.Providers["myai"]
+	if !ok {
+		t.Fatalf("provider myai not parsed: %+v", cfg.Providers)
+	}
+	if p.Command != "myai-cli" {
+		t.Errorf("Command = %q, want myai-cli", p.Command)
+	}
+	if p.PromptInjection.Mode != "arg" || p.PromptInjection.Text != "continue please" {
+		t.Errorf("PromptInjection = %+v, want {arg, continue please}", p.PromptInjection)
+	}
+
+	// Round-trip through Marshal must preserve the new field.
+	data, err := cfg.Marshal()
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	again, err := Unmarshal(data)
+	if err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	if again.Providers["myai"].PromptInjection.Mode != "arg" {
+		t.Errorf("round-trip lost mode: %+v", again.Providers["myai"])
+	}
+}
+
 func TestLoadPreservesExplicitValues(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

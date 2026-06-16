@@ -10,10 +10,174 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/danielfoord/aictl/internal/config"
 	"github.com/danielfoord/aictl/internal/session"
 	"github.com/danielfoord/aictl/internal/shell"
 	"github.com/danielfoord/aictl/internal/ui"
 )
+
+func TestRunResolvesBuiltinWithFileRefInjection(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeExecutable(t, dir, "claude")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	a := newTestApp()
+	var got shell.Options
+	a.runProvider = func(_ context.Context, opts shell.Options) (shell.Result, error) {
+		got = opts
+		return shell.Result{ExitCode: 0}, nil
+	}
+
+	if _, err := a.Run(context.Background(), "claude", []string{"--resume"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if filepath.Base(got.Command) != "claude" {
+		t.Fatalf("Command = %q, want resolved claude", got.Command)
+	}
+	if len(got.Args) == 0 || !strings.Contains(got.Args[len(got.Args)-1], "handoff.md") {
+		t.Fatalf("expected file-ref handoff prompt as final arg, got %v", got.Args)
+	}
+	if got.Args[0] != "--resume" {
+		t.Fatalf("user arg should precede the prompt, got %v", got.Args)
+	}
+	if len(got.InitialInput) != 0 {
+		t.Fatalf("file-ref must not set InitialInput, got %q", got.InitialInput)
+	}
+}
+
+func TestRunConfigProviderResolvesThroughRegistry(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	bin := writeExecutable(t, dir, "myai-cli")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	cfg := config.Default()
+	cfg.Providers = map[string]config.Provider{
+		"myai": {Command: "myai-cli", PromptInjection: config.PromptInjection{Mode: "arg", Text: "do the thing"}},
+	}
+	data, err := cfg.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := session.NewPaths(dir)
+	if err := os.MkdirAll(paths.Dir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Config(), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	a := newTestApp()
+	var got shell.Options
+	a.runProvider = func(_ context.Context, opts shell.Options) (shell.Result, error) {
+		got = opts
+		return shell.Result{ExitCode: 0}, nil
+	}
+
+	if _, err := a.Run(context.Background(), "myai", nil); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if got.Command != bin {
+		t.Fatalf("Command = %q, want %q", got.Command, bin)
+	}
+	if got.Args[len(got.Args)-1] != "do the thing" {
+		t.Fatalf("arg injection should pass configured text last, got %v", got.Args)
+	}
+}
+
+func TestRunPasteProviderSetsInitialInput(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeExecutable(t, dir, "pasteai")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeProviderConfig(t, dir, map[string]config.Provider{
+		"pasteai": {Command: "pasteai", PromptInjection: config.PromptInjection{Mode: "paste", Text: "do it"}},
+	})
+
+	a := newTestApp()
+	var got shell.Options
+	a.runProvider = func(_ context.Context, opts shell.Options) (shell.Result, error) {
+		got = opts
+		return shell.Result{ExitCode: 0}, nil
+	}
+
+	if _, err := a.Run(context.Background(), "pasteai", nil); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if string(got.InitialInput) != "do it\r" {
+		t.Fatalf("InitialInput = %q, want \"do it\\r\"", got.InitialInput)
+	}
+	if len(got.Args) != 0 {
+		t.Fatalf("paste mode must not append a prompt arg, got %v", got.Args)
+	}
+}
+
+func TestRunUnknownNameRunsBareWithoutInjection(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeExecutable(t, dir, "randomtool")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	a := newTestApp()
+	var got shell.Options
+	a.runProvider = func(_ context.Context, opts shell.Options) (shell.Result, error) {
+		got = opts
+		return shell.Result{ExitCode: 0}, nil
+	}
+
+	if _, err := a.Run(context.Background(), "randomtool", []string{"-x"}); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(got.InitialInput) != 0 {
+		t.Fatalf("unknown name must not inject, got InitialInput %q", got.InitialInput)
+	}
+	if strings.Join(got.Args, " ") != "-x" {
+		t.Fatalf("unknown name should pass only user args, got %v", got.Args)
+	}
+}
+
+func TestRunInvalidConfigModeFailsBeforeRunner(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeExecutable(t, dir, "typoai")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	writeProviderConfig(t, dir, map[string]config.Provider{
+		"typoai": {Command: "typoai", PromptInjection: config.PromptInjection{Mode: "psate"}},
+	})
+
+	a := newTestApp()
+	called := false
+	a.runProvider = func(context.Context, shell.Options) (shell.Result, error) {
+		called = true
+		return shell.Result{}, nil
+	}
+
+	_, err := a.Run(context.Background(), "typoai", nil)
+	if err == nil || !strings.Contains(err.Error(), "unknown injection mode") {
+		t.Fatalf("error = %v, want unknown injection mode", err)
+	}
+	if called {
+		t.Fatal("runner must not be called when the injection mode is invalid")
+	}
+}
+
+func writeProviderConfig(t *testing.T, dir string, provs map[string]config.Provider) {
+	t.Helper()
+	cfg := config.Default()
+	cfg.Providers = provs
+	data, err := cfg.Marshal()
+	if err != nil {
+		t.Fatal(err)
+	}
+	paths := session.NewPaths(dir)
+	if err := os.MkdirAll(paths.Dir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Config(), data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
 
 func TestRunWritesTranscriptFile(t *testing.T) {
 	dir := t.TempDir()
