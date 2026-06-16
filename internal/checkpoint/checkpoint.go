@@ -150,9 +150,9 @@ func NextSequence(paths session.Paths) (int, error) {
 		if len(name) < 11 {
 			continue
 		}
-		if !(strings.Contains(name, "-"+prePhase+"-") ||
-			strings.Contains(name, "-"+postPhase+"-") ||
-			strings.Contains(name, "-"+manualPhase+"-")) {
+		if !strings.Contains(name, "-"+prePhase+"-") &&
+			!strings.Contains(name, "-"+postPhase+"-") &&
+			!strings.Contains(name, "-"+manualPhase+"-") {
 			continue
 		}
 		seq, ok := parseCheckpointSequence(name)
