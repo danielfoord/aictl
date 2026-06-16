@@ -2,6 +2,9 @@ package main
 
 import (
 	"bytes"
+	"os"
+	"os/exec"
+	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
@@ -111,5 +114,40 @@ func TestStateCommandsRequireExactlyOneArg(t *testing.T) {
 		if err := run(args...); err == nil {
 			t.Fatalf("%v: expected argument error", args)
 		}
+	}
+}
+
+func TestRecoverCommandWritesRecoveryPrompt(t *testing.T) {
+	dir := t.TempDir()
+	if err := exec.Command("git", "-C", dir, "init").Run(); err != nil {
+		t.Fatalf("git init: %v", err)
+	}
+	t.Chdir(dir)
+	out, _, run := newTestCmd("dev")
+
+	if err := run("start", "recover this task"); err != nil {
+		t.Fatalf("start: %v", err)
+	}
+	out.Reset()
+
+	if err := os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if addOut, err := exec.Command("git", "-C", dir, "add", "main.go").CombinedOutput(); err != nil {
+		t.Fatalf("git add: %v\n%s", err, addOut)
+	}
+
+	if err := run("recover"); err != nil {
+		t.Fatalf("recover: %v", err)
+	}
+	if !strings.Contains(out.String(), "Wrote recovery prompt") {
+		t.Fatalf("recover output missing success message: %q", out.String())
+	}
+	data, err := os.ReadFile(session.NewPaths(dir).Recovery())
+	if err != nil {
+		t.Fatalf("read recovery prompt: %v", err)
+	}
+	if !strings.Contains(string(data), "recover this task") {
+		t.Fatalf("recovery prompt missing goal:\n%s", data)
 	}
 }

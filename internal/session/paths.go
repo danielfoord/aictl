@@ -46,6 +46,9 @@ func (p Paths) StateLock() string { return filepath.Join(p.root, ".state.lock") 
 // Handoff is the path to the current Handoff packet (`handoff.md`).
 func (p Paths) Handoff() string { return filepath.Join(p.root, "handoff.md") }
 
+// Recovery is the path to the last-resort recovery prompt (`recovery.md`).
+func (p Paths) Recovery() string { return filepath.Join(p.root, "recovery.md") }
+
 // LatestVerify is the path to the most recent verification output. Populated by
 // `aictl verify` (Story 2.3); read include-if-present by the handoff generator.
 func (p Paths) LatestVerify() string { return filepath.Join(p.root, "latest-verify.txt") }

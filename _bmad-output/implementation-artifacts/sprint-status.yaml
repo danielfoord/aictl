@@ -1,5 +1,5 @@
 # generated: 2026-06-15
-# last_updated: 2026-06-15
+# last_updated: 2026-06-16
 # project: aictl
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-06-15
-last_updated: 2026-06-15
+last_updated: 2026-06-16
 project: aictl
 project_key: NOKEY
 tracking_system: file-system
@@ -55,7 +55,7 @@ development_status:
   2-1-capture-faithful-git-state: done
   2-2-generate-deterministic-handoff: done
   2-3-verify-commands-feed-handoff: done
-  2-4-last-resort-recovery: backlog
+  2-4-last-resort-recovery: done
   epic-2-retrospective: optional
 
   # Epic 3: Supervised Provider Runs
