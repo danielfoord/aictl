@@ -36,6 +36,9 @@ func TestExitCodeFromError(t *testing.T) {
 	if got, ok := exitCodeFromError(app.ExitError{Code: 42}); !ok || got != 42 {
 		t.Fatalf("exitCodeFromError = %d, %v; want 42, true", got, ok)
 	}
+	if got, ok := exitCodeFromError(app.PostRunError{Code: 37, CheckpointErr: errors.New("checkpoint failed")}); !ok || got != 37 {
+		t.Fatalf("post-run error exit = %d, %v; want 37, true", got, ok)
+	}
 	if got, ok := exitCodeFromError(errors.New("ordinary")); ok || got != 1 {
 		t.Fatalf("ordinary error exit = %d, %v; want 1, false", got, ok)
 	}

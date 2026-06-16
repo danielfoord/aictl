@@ -33,6 +33,14 @@ func (p Paths) State() string { return filepath.Join(p.root, "state.yaml") }
 // Checkpoints is the path to the `checkpoints/` directory.
 func (p Paths) Checkpoints() string { return filepath.Join(p.root, "checkpoints") }
 
+// CheckpointDir is the path to one checkpoint directory under checkpoints/.
+func (p Paths) CheckpointDir(name string) string { return filepath.Join(p.Checkpoints(), name) }
+
+// CheckpointFile is the path to one file inside a checkpoint directory.
+func (p Paths) CheckpointFile(dirName, fileName string) string {
+	return filepath.Join(p.CheckpointDir(dirName), fileName)
+}
+
 // GitIgnore is the path to the Session Directory's `.gitignore`.
 func (p Paths) GitIgnore() string { return filepath.Join(p.root, ".gitignore") }
 

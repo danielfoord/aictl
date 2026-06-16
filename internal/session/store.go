@@ -44,11 +44,11 @@ func WriteAtomic(path string, data []byte, perm os.FileMode) (err error) {
 	if err = os.Rename(tmpName, path); err != nil {
 		return fmt.Errorf("rename temp file over target: %w", err)
 	}
-	return fsyncDir(dir)
+	return SyncDir(dir)
 }
 
-// fsyncDir flushes a directory entry so a rename within it is durable.
-func fsyncDir(dir string) error {
+// SyncDir flushes a directory entry so creates/renames within it are durable.
+func SyncDir(dir string) error {
 	d, err := os.Open(dir)
 	if err != nil {
 		return fmt.Errorf("open dir for sync: %w", err)

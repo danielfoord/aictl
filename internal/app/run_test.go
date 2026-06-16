@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strings"
@@ -184,6 +185,9 @@ func TestRunWritesTranscriptFile(t *testing.T) {
 	t.Chdir(dir)
 	writeExecutable(t, dir, "fake-provider")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := newTestApp().Start(context.Background(), "checkpoint the run"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
 
 	a := newTestApp()
 	a.runProvider = func(_ context.Context, opts shell.Options) (shell.Result, error) {
@@ -199,7 +203,7 @@ func TestRunWritesTranscriptFile(t *testing.T) {
 		t.Fatalf("Run: %v", err)
 	}
 
-	data, err := os.ReadFile(session.NewPaths(dir).Transcript())
+	data, err := os.ReadFile(filepath.Join(session.NewPaths(dir).Checkpoints(), "0001-after-fake-provider", "transcript.ansi"))
 	if err != nil {
 		t.Fatalf("read transcript: %v", err)
 	}
@@ -208,11 +212,181 @@ func TestRunWritesTranscriptFile(t *testing.T) {
 	}
 }
 
+func TestRunCreatesPreAndPostCheckpoints(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeExecutable(t, dir, "fake-provider")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := newTestApp().Start(context.Background(), "checkpoint the run"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	a := newTestApp()
+	a.runProvider = func(_ context.Context, opts shell.Options) (shell.Result, error) {
+		_, _ = opts.Transcript.Write([]byte("transcript\n"))
+		return shell.Result{ExitCode: 0}, nil
+	}
+	if _, err := a.Run(context.Background(), "fake-provider", nil); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	checkpoints := session.NewPaths(dir).Checkpoints()
+	for _, path := range []string{
+		filepath.Join(checkpoints, "0001-before-fake-provider", "handoff.md"),
+		filepath.Join(checkpoints, "0001-before-fake-provider", "git-status.txt"),
+		filepath.Join(checkpoints, "0001-before-fake-provider", "git-diff.patch"),
+		filepath.Join(checkpoints, "0001-before-fake-provider", "recent-commits.txt"),
+		filepath.Join(checkpoints, "0001-before-fake-provider", "command-log.md"),
+		filepath.Join(checkpoints, "0001-before-fake-provider", "summary.md"),
+		filepath.Join(checkpoints, "0001-after-fake-provider", "exit-code.txt"),
+		filepath.Join(checkpoints, "0001-after-fake-provider", "transcript.ansi"),
+		filepath.Join(checkpoints, "0001-after-fake-provider", "recent-commits.txt"),
+		filepath.Join(checkpoints, "0001-after-fake-provider", "files-changed.txt"),
+	} {
+		if _, err := os.Stat(path); err != nil {
+			t.Fatalf("expected checkpoint artifact %s: %v", path, err)
+		}
+	}
+}
+
+func TestRunNoopProviderDoesNotReportOwnHandoffWriteAsFilesChanged(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeExecutable(t, dir, "fake-provider")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	runGit(t, dir, "init")
+	runGit(t, dir, "config", "user.email", "test@example.com")
+	runGit(t, dir, "config", "user.name", "Test User")
+
+	if err := newTestApp().Start(context.Background(), "checkpoint cleanly"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+	paths := session.NewPaths(dir)
+	if err := session.WriteAtomic(paths.Handoff(), []byte("old handoff\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	runGit(t, dir, "add", ".ai-session/.gitignore", ".ai-session/config.yaml", ".ai-session/state.yaml", ".ai-session/handoff.md")
+	runGit(t, dir, "commit", "-m", "track session")
+
+	a := newTestApp()
+	a.runProvider = func(context.Context, shell.Options) (shell.Result, error) {
+		return shell.Result{ExitCode: 0}, nil
+	}
+	if _, err := a.Run(context.Background(), "fake-provider", nil); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+
+	data, err := os.ReadFile(filepath.Join(paths.Checkpoints(), "0001-after-fake-provider", "files-changed.txt"))
+	if err != nil {
+		t.Fatalf("read files-changed.txt: %v", err)
+	}
+	if strings.TrimSpace(string(data)) != "no" {
+		t.Fatalf("files-changed.txt = %q, want no", data)
+	}
+}
+
+func TestRunPreRunPersistenceFailurePreventsRunner(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeExecutable(t, dir, "fake-provider")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	paths := session.NewPaths(dir)
+	if err := os.MkdirAll(paths.Dir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.SaveState(paths.State(), session.TaskState{Goal: "x"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(paths.Checkpoints(), []byte("not a dir"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	a := newTestApp()
+	called := false
+	a.runProvider = func(context.Context, shell.Options) (shell.Result, error) {
+		called = true
+		return shell.Result{}, nil
+	}
+	_, err := a.Run(context.Background(), "fake-provider", nil)
+	if err == nil {
+		t.Fatal("expected pre-run persistence failure")
+	}
+	if called {
+		t.Fatal("runner must not be called after pre-run persistence failure")
+	}
+}
+
+func TestRunNonzeroExitStillWritesPostCheckpoint(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeExecutable(t, dir, "fake-provider")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := newTestApp().Start(context.Background(), "checkpoint the failure"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	a := newTestApp()
+	a.runProvider = func(context.Context, shell.Options) (shell.Result, error) {
+		return shell.Result{ExitCode: 42}, nil
+	}
+	res, err := a.Run(context.Background(), "fake-provider", nil)
+	if err == nil {
+		t.Fatal("expected exit error")
+	}
+	if res.ExitCode != 42 {
+		t.Fatalf("ExitCode = %d, want 42", res.ExitCode)
+	}
+	data, readErr := os.ReadFile(filepath.Join(session.NewPaths(dir).Checkpoints(), "0001-after-fake-provider", "exit-code.txt"))
+	if readErr != nil {
+		t.Fatalf("read exit-code.txt: %v", readErr)
+	}
+	if strings.TrimSpace(string(data)) != "42" {
+		t.Fatalf("exit-code.txt = %q", data)
+	}
+}
+
+func TestRunPostCheckpointFailurePreservesProviderExitCode(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeExecutable(t, dir, "fake-provider")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := newTestApp().Start(context.Background(), "checkpoint the failure"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
+
+	providerErr := errors.New("provider transport failed")
+	a := newTestApp()
+	a.runProvider = func(context.Context, shell.Options) (shell.Result, error) {
+		exitPath := filepath.Join(session.NewPaths(dir).Checkpoints(), "0001-after-fake-provider", "exit-code.txt")
+		if err := os.Mkdir(exitPath, 0o755); err != nil {
+			t.Fatalf("force post checkpoint failure: %v", err)
+		}
+		return shell.Result{ExitCode: 42}, providerErr
+	}
+	res, err := a.Run(context.Background(), "fake-provider", nil)
+	if err == nil {
+		t.Fatal("expected post checkpoint error")
+	}
+	if res.ExitCode != 42 {
+		t.Fatalf("ExitCode = %d, want 42", res.ExitCode)
+	}
+	var exitErr ExitError
+	if !errors.As(err, &exitErr) || exitErr.Code != 42 {
+		t.Fatalf("error = %#v, want wrapped ExitError{42}", err)
+	}
+	if !errors.Is(err, providerErr) {
+		t.Fatalf("error = %#v, want wrapped provider error", err)
+	}
+}
+
 func TestRunIsQuietDuringProviderRun(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	writeExecutable(t, dir, "fake-provider")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := newTestApp().Start(context.Background(), "quiet checkpoint"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
 
 	var out bytes.Buffer
 	a := New(ui.New(&out, &out))
@@ -248,11 +422,15 @@ func TestRunFlushesUIEvenIfRunnerPanics(t *testing.T) {
 	t.Chdir(dir)
 	writeExecutable(t, dir, "fake-provider")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := newTestApp().Start(context.Background(), "panic checkpoint"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
 
 	var out bytes.Buffer
 	a := New(ui.New(&out, &out))
-	a.runProvider = func(context.Context, shell.Options) (shell.Result, error) {
+	a.runProvider = func(_ context.Context, opts shell.Options) (shell.Result, error) {
 		a.UI.Printf("buffered-before-panic\n")
+		_, _ = opts.Transcript.Write([]byte("before panic\n"))
 		panic("boom")
 	}
 
@@ -264,6 +442,13 @@ func TestRunFlushesUIEvenIfRunnerPanics(t *testing.T) {
 		// buffered notice emitted, not lost.
 		if !strings.Contains(out.String(), "buffered-before-panic") {
 			t.Fatalf("buffered output not flushed after panic: %q", out.String())
+		}
+		data, err := os.ReadFile(filepath.Join(session.NewPaths(dir).Checkpoints(), "0001-after-fake-provider", "transcript.ansi"))
+		if err != nil {
+			t.Fatalf("read panic transcript: %v", err)
+		}
+		if string(data) != "before panic\n" {
+			t.Fatalf("panic transcript = %q", data)
 		}
 	}()
 
@@ -291,9 +476,18 @@ func TestRunWithoutInitWritesGitignore(t *testing.T) {
 	if !strings.Contains(string(data), "transcript.ansi") {
 		t.Fatalf("run-created .gitignore missing transcript.ansi:\n%s", data)
 	}
+	paths := session.NewPaths(dir)
+	if _, err := os.Stat(paths.Checkpoints()); err != nil {
+		t.Fatalf("run-created checkpoints dir: %v", err)
+	}
+	if _, err := os.Stat(paths.State()); err != nil {
+		t.Fatalf("run-created state file: %v", err)
+	}
 }
 
 func TestRunMissingProviderFailsBeforeRunner(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
 	a := newTestApp()
 	called := false
 	a.runProvider = func(context.Context, shell.Options) (shell.Result, error) {
@@ -318,6 +512,9 @@ func TestRunDelegatesResolvedProviderAndArgs(t *testing.T) {
 	t.Chdir(dir)
 	provider := writeExecutable(t, dir, "fake-provider")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := newTestApp().Start(context.Background(), "delegate checkpoint"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
 
 	var out bytes.Buffer
 	a := New(ui.New(&out, &out))
@@ -350,6 +547,9 @@ func TestRunReturnsTypedExitCodeError(t *testing.T) {
 	t.Chdir(dir)
 	writeExecutable(t, dir, "fake-provider")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := newTestApp().Start(context.Background(), "exit checkpoint"); err != nil {
+		t.Fatalf("Start: %v", err)
+	}
 
 	a := newTestApp()
 	a.runProvider = func(context.Context, shell.Options) (shell.Result, error) {
@@ -381,4 +581,15 @@ func writeExecutable(t *testing.T, dir, name string) string {
 		t.Fatal(err)
 	}
 	return path
+}
+
+func runGit(t *testing.T, dir string, args ...string) {
+	t.Helper()
+	if _, err := exec.LookPath("git"); err != nil {
+		t.Skip("git binary not available")
+	}
+	cmd := exec.Command("git", append([]string{"-C", dir}, args...)...)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		t.Fatalf("git %s: %v\n%s", strings.Join(args, " "), err, out)
+	}
 }
