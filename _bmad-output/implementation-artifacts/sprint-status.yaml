@@ -51,8 +51,8 @@ development_status:
   epic-1-retrospective: optional
 
   # Epic 2: Portable Handoffs & Recovery
-  epic-2: backlog
-  2-1-capture-faithful-git-state: backlog
+  epic-2: in-progress
+  2-1-capture-faithful-git-state: done
   2-2-generate-deterministic-handoff: backlog
   2-3-verify-commands-feed-handoff: backlog
   2-4-last-resort-recovery: backlog
