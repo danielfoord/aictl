@@ -19,20 +19,21 @@ jobs:
           go-version: "1.26"
           check-latest: true
 
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: gofmt
-        run: |
-          set -euo pipefail
-          files=$(git ls-files '*.go')
-          unformatted=$(gofmt -l $files)
-          if [ -n "$unformatted" ]; then
-            echo "These files are not gofmt-ed:"
-            echo "$unformatted"
-            exit 1
-          fi
+        run: task fmt:check
 
       - name: go vet
-        run: go vet ./...
+        run: task vet
 
+      # golangci-lint runs through its dedicated action (not `task lint`) so CI
+      # gets linter-binary caching and inline PR annotations. Keep this version
+      # in lock-step with the `lint` task in Taskfile.yml; the rules live in
+      # .golangci.yml (the single source of truth for both).
       - name: golangci-lint
         uses: golangci/golangci-lint-action@v8
         with:

@@ -25,11 +25,15 @@ jobs:
           go-version: "1.26"
           check-latest: true
 
+      - uses: arduino/setup-task@v2
+        with:
+          version: 3.x
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Build
-        run: go build ./...
+        run: task build
 
-      - name: Test (race + shuffle)
-        run: go test -race -shuffle=on -coverprofile=coverage.out -covermode=atomic ./...
-
-      - name: Coverage summary
-        run: go tool cover -func=coverage.out | tail -n 1
+      # task test:cover runs `go test -race -shuffle=on -coverprofile ...` and
+      # prints the total coverage line.
+      - name: Test (race + shuffle + coverage)
+        run: task test:cover
