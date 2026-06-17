@@ -17,11 +17,89 @@ import (
 	"github.com/danielfoord/aictl/internal/ui"
 )
 
+// seedGoal makes the session "in progress" so `run` injects the handoff.
+func seedGoal(t *testing.T, dir, goal string) {
+	t.Helper()
+	paths := session.NewPaths(dir)
+	if err := os.MkdirAll(paths.Dir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.SaveState(paths.State(), session.TaskState{Goal: goal}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestRunFreshSessionSkipsInjection(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeExecutable(t, dir, "claude")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	a := newTestApp()
+	var got shell.Options
+	a.runProvider = func(_ context.Context, opts shell.Options) (shell.Result, error) {
+		got = opts
+		return shell.Result{ExitCode: 0}, nil
+	}
+
+	// Fresh session: no goal, no progress.
+	if _, err := a.Run(context.Background(), "claude", nil); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(got.Args) != 0 {
+		t.Fatalf("fresh session must not inject a prompt arg, got %v", got.Args)
+	}
+	if len(got.InitialInput) != 0 {
+		t.Fatalf("fresh session must not set InitialInput, got %q", got.InitialInput)
+	}
+	// Durability is unchanged: handoff + before-checkpoint still written.
+	paths := session.NewPaths(dir)
+	if _, err := os.Stat(paths.Handoff()); err != nil {
+		t.Fatalf("handoff.md should be written even without injection: %v", err)
+	}
+	if _, err := os.Stat(paths.CheckpointDir("0001-before-claude")); err != nil {
+		t.Fatalf("pre-run checkpoint should be written even without injection: %v", err)
+	}
+	if _, err := os.Stat(paths.CheckpointDir("0001-after-claude")); err != nil {
+		t.Fatalf("post-run checkpoint should be written even without injection: %v", err)
+	}
+}
+
+func TestRunProgressWithoutGoalInjects(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+	writeExecutable(t, dir, "claude")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// Progress recorded but no goal → still a task to continue.
+	paths := session.NewPaths(dir)
+	if err := os.MkdirAll(paths.Dir(), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := session.SaveState(paths.State(), session.TaskState{NextSteps: []string{"wire it up"}}); err != nil {
+		t.Fatal(err)
+	}
+
+	a := newTestApp()
+	var got shell.Options
+	a.runProvider = func(_ context.Context, opts shell.Options) (shell.Result, error) {
+		got = opts
+		return shell.Result{ExitCode: 0}, nil
+	}
+	if _, err := a.Run(context.Background(), "claude", nil); err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(got.Args) == 0 || !strings.Contains(got.Args[len(got.Args)-1], "handoff.md") {
+		t.Fatalf("progress-only session should inject the handoff, got %v", got.Args)
+	}
+}
+
 func TestRunResolvesBuiltinWithFileRefInjection(t *testing.T) {
 	dir := t.TempDir()
 	t.Chdir(dir)
 	writeExecutable(t, dir, "claude")
 	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	seedGoal(t, dir, "resume the task")
 
 	a := newTestApp()
 	var got shell.Options
@@ -68,6 +146,7 @@ func TestRunConfigProviderResolvesThroughRegistry(t *testing.T) {
 	if err := os.WriteFile(paths.Config(), data, 0o644); err != nil {
 		t.Fatal(err)
 	}
+	seedGoal(t, dir, "resume the task")
 
 	a := newTestApp()
 	var got shell.Options
@@ -95,6 +174,7 @@ func TestRunPasteProviderSetsInitialInput(t *testing.T) {
 	writeProviderConfig(t, dir, map[string]config.Provider{
 		"pasteai": {Command: "pasteai", PromptInjection: config.PromptInjection{Mode: "paste", Text: "do it"}},
 	})
+	seedGoal(t, dir, "resume the task")
 
 	a := newTestApp()
 	var got shell.Options

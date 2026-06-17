@@ -257,6 +257,10 @@ By default, `aictl` injects a short instruction telling the Provider to read `ha
 - Default injection text references the Handoff file and instructs "do not restart from scratch."
 - Injection mode is configurable per Provider in Config (file-ref / arg / stdin / paste).
 - For Providers that cannot read files, a paste fallback delivers the Handoff text. `[ASSUMPTION]`
+- Injection happens only when the Session has a task to continue (a recorded Goal or
+  task-state progress). A fresh run with no goal/progress launches the Provider with no
+  injected prompt, so the user can drive it (e.g. their own slash command). The mode
+  decides *how* to inject; this decides *whether*.
 
 #### FR-18: Verify commands feed the Handoff
 

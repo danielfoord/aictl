@@ -36,6 +36,22 @@ func TestLoadNormalizesEmptyGuardrails(t *testing.T) {
 	}
 }
 
+func TestGoalSourceRoundTrips(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "config.yaml")
+	yamlText := "goalSource:\n  file: TASK.md\n  command: \"echo hi\"\n"
+	if err := os.WriteFile(path, []byte(yamlText), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := Load(path)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if cfg.GoalSource.File != "TASK.md" || cfg.GoalSource.Command != "echo hi" {
+		t.Fatalf("GoalSource = %+v, want {TASK.md, echo hi}", cfg.GoalSource)
+	}
+}
+
 func TestProviderPromptInjectionRoundTrips(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "config.yaml")

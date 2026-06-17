@@ -74,3 +74,13 @@
 
 - **Checkpoint directory/file permissions** — manual (and run) checkpoint dirs are `0o755` and files use `filePerm` (≈`0o644`), looser than the transcript's `0o600`, while a redacted `git-diff.patch` can still hold sensitive non-denylisted content. Pre-existing Story 3.4 posture; `checkpoints/` is gitignored. → **tighten checkpoint perms follow-up.**
 - **Partial checkpoint distinguishability** — `CaptureManual` writes artifacts in nondeterministic map order and, on a mid-write failure, leaves a partial directory (spec-accepted for forensics) that `NextSequence` still counts. Deterministic ordered writes and/or a completion marker would let consumers tell complete from truncated. → **checkpoint completion-marker follow-up.**
+
+## Deferred from: code review of 3-6-smart-default-handoff-injection (2026-06-16)
+
+- **Corrupt/unreadable `state.yaml` hard-fails `aictl run`** — `prepareHandoff` (internal/app/handoff.go:64-67) returns the `LoadState` error fatally, while git-capture failures in the same function degrade to warnings. A malformed/type-mismatched state file blocks launching the provider rather than degrading to a clean run. Pre-existing since Story 3.4; not introduced by 3.6. → **resilient task-state load follow-up** (warn + launch clean).
+
+## Deferred from: code review of 3-7-configurable-goal-source (2026-06-17)
+
+- **Plain-text goal source can produce a huge multi-line goal** — `goalsource.Parse` makes the whole trimmed text the goal when there's no structured `goal:`. A length cap or first-line extraction would tame a prose `TASK.md`. Documented behavior; user controls the source. → **plain-text goal sizing follow-up.**
+- **No timeout on the `goalSource` command** — `goalsource.Read` runs `sh -c` cancelable via ctx but with no deadline; consistent with `internal/verify`. A bounded-timeout policy across the shell-out commands (verify + goalSource) is a project-wide follow-up. → **command timeout follow-up.**
+- **`state.yaml` missing but `.ai-session/` present** — `App.Sync` (and other state-loading commands) surface a raw `LoadState` error rather than `ErrNoSession`/degrade. Only on a hand-damaged session. → **resilient state-load follow-up** (shared with the 3.6-deferred corrupt-state item).

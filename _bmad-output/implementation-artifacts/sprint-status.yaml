@@ -65,6 +65,8 @@ development_status:
   3-3-provider-adapters-trio-config-injection: done
   3-4-pre-post-run-checkpoints-durability-ordering: done
   3-5-on-demand-checkpoint: done
+  3-6-smart-default-handoff-injection: done
+  3-7-configurable-goal-source: done
   epic-3-retrospective: optional
 
   # Epic 4: Automatic Provider Fallback

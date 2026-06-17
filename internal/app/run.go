@@ -91,7 +91,12 @@ func (a *App) Run(ctx context.Context, name string, userArgs []string) (shell.Re
 		return shell.Result{ExitCode: 1}, err
 	}
 
-	command, injection, err := resolveLaunch(providers.Resolve(prepared.Config), name, paths.Handoff(), userArgs)
+	// Smart default: inject the handoff prompt only when there is a task to
+	// continue. A fresh session (no goal/progress) launches the provider clean so
+	// the user can drive it (e.g. a BMad /dev-story slash command). The handoff and
+	// checkpoints below are still written either way.
+	inject := prepared.State.InProgress()
+	command, injection, err := resolveLaunch(providers.Resolve(prepared.Config), name, paths.Handoff(), userArgs, inject)
 	if err != nil {
 		return shell.Result{ExitCode: 1}, err
 	}
@@ -156,10 +161,12 @@ func (a *App) Run(ctx context.Context, name string, userArgs []string) (shell.Re
 	return res, nil
 }
 
-// resolveLaunch turns the requested name into a command and an injection plan.
-// A name in the resolved registry uses its command + prompt injection; an
-// unknown name falls back to a bare executable with no injection.
-func resolveLaunch(resolved map[string]providers.Provider, name, handoffPath string, userArgs []string) (string, providers.Injection, error) {
+// resolveLaunch turns the requested name into a command and a launch plan. A name
+// in the resolved registry uses its command, and — when inject is true — its
+// prompt injection; when inject is false the provider launches with just its base
+// args plus the user's args (no prompt). An unknown name falls back to a bare
+// executable with no injection.
+func resolveLaunch(resolved map[string]providers.Provider, name, handoffPath string, userArgs []string, inject bool) (string, providers.Injection, error) {
 	p, ok := providers.Lookup(resolved, name)
 	if !ok {
 		return name, providers.Injection{Args: userArgs}, nil
@@ -169,6 +176,9 @@ func resolveLaunch(resolved map[string]providers.Provider, name, handoffPath str
 	}
 	if !p.Mode.Valid() {
 		return "", providers.Injection{}, fmt.Errorf("provider %q has unknown injection mode %q (want file-ref, arg, stdin, or paste)", name, p.Mode)
+	}
+	if !inject {
+		return p.Command, providers.Injection{Args: append(append([]string(nil), p.Args...), userArgs...)}, nil
 	}
 	return p.Command, p.Inject(handoffPath, userArgs), nil
 }

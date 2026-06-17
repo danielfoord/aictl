@@ -20,6 +20,18 @@ type Config struct {
 	// Denylist are file path globs whose contents are stripped from generated
 	// diffs/handoffs to avoid leaking secrets (used by the git layer, Story 2.1).
 	Denylist []string `yaml:"denylist"`
+	// GoalSource is an optional, tool-agnostic source `aictl sync` reads to
+	// populate the session goal when it has none (Story 3.7).
+	GoalSource GoalSource `yaml:"goalSource"`
+}
+
+// GoalSource declares where `aictl sync` reads task context. It is tool-agnostic:
+// File is read, or Command is run via `sh -c` and its stdout used. The output may
+// be structured YAML (goal / nextSteps / decisions / knownFailures) or plain text
+// (the whole output becomes the goal). Empty = unset (manual goals only).
+type GoalSource struct {
+	File    string `yaml:"file"`
+	Command string `yaml:"command"`
 }
 
 // Provider is a provider adapter definition that overlays the built-in registry

@@ -22,6 +22,19 @@ type TaskState struct {
 	VerifyCommands []string `yaml:"verifyCommands"`
 }
 
+// InProgress reports whether the session has a task worth handing off: a recorded
+// Goal or any task-state progress (completed steps, decisions, next steps, or known
+// failures). Branch/Dirty are captured at session start and VerifyCommands is
+// configuration, so none of them count as progress. Used to decide whether
+// `aictl run` injects the handoff (a fresh session is driven by the user instead).
+func (s TaskState) InProgress() bool {
+	return s.Goal != "" ||
+		len(s.Completed) > 0 ||
+		len(s.Decisions) > 0 ||
+		len(s.NextSteps) > 0 ||
+		len(s.KnownFailures) > 0
+}
+
 // Marshal serializes the Task State to YAML.
 func (s TaskState) Marshal() ([]byte, error) {
 	return yaml.Marshal(s)
